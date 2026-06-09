@@ -10,7 +10,11 @@ import type {
   DataSourceStatus,
   TradeZoneAudit,
   MTFRow,
+  StructureDebugInfo,
+  SignalAgreement,
+  ClassifiedZone,
 } from '../types';
+import { BacktestPanel } from './BacktestPanel';
 
 interface Props {
   report: TradeReport;
@@ -54,6 +58,30 @@ function RelevanceBadge({ relevance }: { relevance: 'high' | 'medium' | 'low' })
   return (
     <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold uppercase ${color}`}>
       {relevance}
+    </span>
+  );
+}
+
+function ClassificationBadge({ classification }: { classification: ClassifiedZone['classification'] }) {
+  return classification === 'trend-following' ? (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-500 bg-opacity-20 text-blue-400">
+      Trend Following
+    </span>
+  ) : (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500 bg-opacity-20 text-orange-400">
+      Counter Trend
+    </span>
+  );
+}
+
+function RiskBadge({ risk }: { risk: ClassifiedZone['riskLevel'] }) {
+  const cls =
+    risk === 'low' ? 'bg-accent-green bg-opacity-20 text-accent-green' :
+    risk === 'medium' ? 'bg-yellow-500 bg-opacity-20 text-yellow-400' :
+    'bg-accent-red bg-opacity-20 text-accent-red';
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold uppercase ${cls}`}>
+      {risk}
     </span>
   );
 }
@@ -145,14 +173,15 @@ function DataSourcesSection({ sources }: { sources: DataSourceStatus[] }) {
   );
 }
 
-// ── 2. Consistency Warning ────────────────────────────────────────────────────
+// ── 2. MTF Warning ────────────────────────────────────────────────────────────
 
-function ConsistencyWarning({ warning }: { warning: string | null }) {
-  if (!warning) return null;
+function MTFWarning({ warning }: { warning: string | null | undefined }) {
+  const msg = warning ?? null;
+  if (!msg) return null;
   return (
     <div className="flex items-start gap-3 p-4 bg-yellow-500 bg-opacity-10 border border-yellow-500 border-opacity-30 rounded-xl text-yellow-400 text-xs">
       <span className="mt-0.5 text-base leading-none">⚠</span>
-      <span>{warning}</span>
+      <span>{msg}</span>
     </div>
   );
 }
@@ -201,6 +230,53 @@ function MTFSection({ rows }: { rows: MTFRow[] }) {
   );
 }
 
+// ── FIX 1: Structure Debug Table ──────────────────────────────────────────────
+
+function StructureDebugSection({ rows }: { rows: StructureDebugInfo[] }) {
+  if (!rows || rows.length === 0) return null;
+  return (
+    <Card>
+      <SectionHeader title="Structure Debug Info (All Timeframes)" />
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="text-text-muted uppercase tracking-wider">
+              <th className="text-left pb-2 pr-3">TF</th>
+              <th className="text-left pb-2 pr-3">Candles</th>
+              <th className="text-left pb-2 pr-3">Swing Highs</th>
+              <th className="text-left pb-2 pr-3">Swing Lows</th>
+              <th className="text-left pb-2 pr-3">BOS (all)</th>
+              <th className="text-left pb-2 pr-3">CHoCH (all)</th>
+              <th className="text-left pb-2 pr-3">OBs</th>
+              <th className="text-left pb-2 pr-3">FVGs</th>
+              <th className="text-left pb-2 pr-3">Quality</th>
+              <th className="text-left pb-2 pr-3">Trend Str.</th>
+              <th className="text-left pb-2">Efficiency</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-b border-bg-border last:border-0">
+                <td className="py-2 pr-3 text-text-primary font-semibold">{r.timeframe}</td>
+                <td className="py-2 pr-3 text-text-primary">{r.candlesAnalyzed}</td>
+                <td className="py-2 pr-3 text-accent-blue">{r.swingHighsDetected}</td>
+                <td className="py-2 pr-3 text-yellow-400">{r.swingLowsDetected}</td>
+                <td className="py-2 pr-3 text-text-primary">{r.bosCount}</td>
+                <td className="py-2 pr-3 text-text-primary">{r.chochCount}</td>
+                <td className="py-2 pr-3 text-text-primary">{r.obCount}</td>
+                <td className="py-2 pr-3 text-text-primary">{r.fvgCount}</td>
+                <td className="py-2 pr-3"><ScoreBadge value={r.structureQuality} /></td>
+                <td className="py-2 pr-3"><ScoreBadge value={r.trendStrength} /></td>
+                <td className="py-2"><ScoreBadge value={r.marketEfficiency} /></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </Card>
+  );
+}
+
 // ── 4. Score Breakdown ────────────────────────────────────────────────────────
 
 function ScoreBreakdownSection({ items }: { items: ScoreBreakdownItem[] }) {
@@ -236,6 +312,92 @@ function ScoreBreakdownSection({ items }: { items: ScoreBreakdownItem[] }) {
             )}
           </tbody>
         </table>
+      </div>
+    </Card>
+  );
+}
+
+// ── FIX 2: Signal Agreement Panel ─────────────────────────────────────────────
+
+function SignalAgreementSection({ agreement }: { agreement: SignalAgreement | undefined }) {
+  if (!agreement) return null;
+  const biasColor =
+    agreement.dominantBias === 'bullish' ? 'text-accent-green' :
+    agreement.dominantBias === 'bearish' ? 'text-accent-red' : 'text-text-muted';
+
+  return (
+    <Card>
+      <SectionHeader title="Signal Agreement" />
+      {/* Summary bar */}
+      <div className="flex items-center gap-3 mb-4 flex-wrap">
+        <span className="text-text-muted text-xs">
+          <span className="text-accent-green font-semibold">{agreement.bullishSignals.length} bullish</span>
+          {' / '}
+          <span className="text-text-secondary font-semibold">{agreement.neutralSignals.length} neutral</span>
+          {' / '}
+          <span className="text-accent-red font-semibold">{agreement.bearishSignals.length} bearish</span>
+        </span>
+        <span className="text-text-muted text-xs">→</span>
+        <span className={`font-bold text-sm uppercase ${biasColor}`}>
+          {agreement.dominantBias}
+        </span>
+        <span className="ml-auto">
+          <ScoreBadge value={agreement.confidence} />
+          <span className="text-text-muted text-xs ml-1">confidence</span>
+        </span>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {/* Bullish signals */}
+        <div>
+          <div className="text-accent-green text-xs font-semibold mb-2 uppercase">Bullish Signals</div>
+          {agreement.bullishSignals.length === 0 ? (
+            <p className="text-text-muted text-xs italic">None</p>
+          ) : (
+            <ul className="space-y-1">
+              {agreement.bullishSignals.map((s, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary">
+                  <span className="text-accent-green mt-0.5">•</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Neutral signals */}
+        <div>
+          <div className="text-text-muted text-xs font-semibold mb-2 uppercase">Neutral</div>
+          {agreement.neutralSignals.length === 0 ? (
+            <p className="text-text-muted text-xs italic">None</p>
+          ) : (
+            <ul className="space-y-1">
+              {agreement.neutralSignals.map((s, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary">
+                  <span className="text-text-muted mt-0.5">•</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Bearish signals */}
+        <div>
+          <div className="text-accent-red text-xs font-semibold mb-2 uppercase">Bearish Signals</div>
+          {agreement.bearishSignals.length === 0 ? (
+            <p className="text-text-muted text-xs italic">None</p>
+          ) : (
+            <ul className="space-y-1">
+              {agreement.bearishSignals.map((s, i) => (
+                <li key={i} className="flex items-start gap-1.5 text-xs text-text-secondary">
+                  <span className="text-accent-red mt-0.5">•</span>
+                  <span>{s}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </div>
     </Card>
   );
@@ -291,31 +453,31 @@ function BOSSection({ events }: { events: EnrichedBOS[] }) {
               <th className="text-left pb-2 pr-4">Type</th>
               <th className="text-left pb-2 pr-4">Break Price</th>
               <th className="text-left pb-2 pr-4">Broken Swing</th>
-              <th className="text-left pb-2">Strength</th>
+              <th className="text-left pb-2 pr-3">Strength</th>
+              <th className="text-left pb-2 pr-3">Disp.</th>
+              <th className="text-left pb-2 pr-3">Vol.</th>
+              <th className="text-left pb-2">Total</th>
             </tr>
           </thead>
           <tbody>
             {events.length === 0 ? (
-              <EmptyRow colSpan={6} />
+              <EmptyRow colSpan={9} />
             ) : (
               events.map((e, i) => (
                 <tr key={i} className="border-b border-bg-border last:border-0">
                   <td className="py-2 pr-4 text-text-muted font-mono">{e.id}</td>
                   <td className="py-2 pr-4 text-text-muted">{fmtTime(e.candleTime)}</td>
                   <td className="py-2 pr-4">
-                    <span
-                      className={`font-semibold uppercase ${
-                        e.type === 'bullish' ? 'text-accent-green' : 'text-accent-red'
-                      }`}
-                    >
+                    <span className={`font-semibold uppercase ${e.type === 'bullish' ? 'text-accent-green' : 'text-accent-red'}`}>
                       {e.type}
                     </span>
                   </td>
                   <td className="py-2 pr-4 text-text-primary">{fmtPrice(e.breakPrice)}</td>
                   <td className="py-2 pr-4 text-text-muted">{fmtPrice(e.brokenSwingPrice)}</td>
-                  <td className="py-2">
-                    <ScoreBadge value={e.strengthScore} />
-                  </td>
+                  <td className="py-2 pr-3"><ScoreBadge value={e.strengthScore} /></td>
+                  <td className="py-2 pr-3 text-text-muted">{e.strengthBreakdown?.displacement ?? '—'}</td>
+                  <td className="py-2 pr-3 text-text-muted">{e.strengthBreakdown?.volume ?? '—'}</td>
+                  <td className="py-2"><ScoreBadge value={e.strengthBreakdown?.total ?? e.strengthScore} /></td>
                 </tr>
               ))
             )}
@@ -353,11 +515,7 @@ function CHoCHSection({ events }: { events: EnrichedCHoCH[] }) {
                   <td className="py-2 pr-4 text-text-muted font-mono">{e.id}</td>
                   <td className="py-2 pr-4 text-text-muted">{fmtTime(e.candleTime)}</td>
                   <td className="py-2 pr-4">
-                    <span
-                      className={`font-semibold uppercase ${
-                        e.type === 'bullish' ? 'text-accent-green' : 'text-accent-red'
-                      }`}
-                    >
+                    <span className={`font-semibold uppercase ${e.type === 'bullish' ? 'text-accent-green' : 'text-accent-red'}`}>
                       {e.type}
                     </span>
                   </td>
@@ -406,11 +564,7 @@ function OrderBlocksSection({ blocks }: { blocks: EnrichedOrderBlock[] }) {
                 <tr key={i} className="border-b border-bg-border last:border-0">
                   <td className="py-2 pr-3 text-text-muted font-mono">{ob.id}</td>
                   <td className="py-2 pr-3">
-                    <span
-                      className={`font-semibold uppercase ${
-                        ob.type === 'bull' ? 'text-accent-green' : 'text-accent-red'
-                      }`}
-                    >
+                    <span className={`font-semibold uppercase ${ob.type === 'bull' ? 'text-accent-green' : 'text-accent-red'}`}>
                       {ob.type === 'bull' ? 'Bullish' : 'Bearish'}
                     </span>
                   </td>
@@ -421,9 +575,7 @@ function OrderBlocksSection({ blocks }: { blocks: EnrichedOrderBlock[] }) {
                   <td className="py-2 pr-3 text-text-primary">{fmtPct(ob.displacementPct)}</td>
                   <td className="py-2 pr-3 text-text-primary">{ob.touchCount}</td>
                   <td className="py-2 pr-3">
-                    <span
-                      className={ob.mitigated ? 'text-accent-red' : 'text-accent-green'}
-                    >
+                    <span className={ob.mitigated ? 'text-accent-red' : 'text-accent-green'}>
                       {ob.mitigated ? 'Yes' : 'No'}
                     </span>
                   </td>
@@ -468,11 +620,7 @@ function FVGSection({ fvgs }: { fvgs: EnrichedFVG[] }) {
                 <tr key={i} className="border-b border-bg-border last:border-0">
                   <td className="py-2 pr-3 text-text-muted font-mono">{f.id}</td>
                   <td className="py-2 pr-3">
-                    <span
-                      className={`font-semibold uppercase ${
-                        f.type === 'bull' ? 'text-accent-green' : 'text-accent-red'
-                      }`}
-                    >
+                    <span className={`font-semibold uppercase ${f.type === 'bull' ? 'text-accent-green' : 'text-accent-red'}`}>
                       {f.type === 'bull' ? 'Bullish' : 'Bearish'}
                     </span>
                   </td>
@@ -483,9 +631,7 @@ function FVGSection({ fvgs }: { fvgs: EnrichedFVG[] }) {
                   <td className="py-2 pr-3 text-text-primary">{fmtPct(f.sizePct)}</td>
                   <td className="py-2 pr-3 text-text-primary">{fmtPct(f.fillPct)}</td>
                   <td className="py-2 pr-3">
-                    <span
-                      className={f.filled ? 'text-text-muted' : 'text-accent-green'}
-                    >
+                    <span className={f.filled ? 'text-text-muted' : 'text-accent-green'}>
                       {f.filled ? 'Filled' : 'Open'}
                     </span>
                   </td>
@@ -526,11 +672,7 @@ function LiquiditySection({ pools }: { pools: EnrichedLiquidityPool[] }) {
               pools.map((p, i) => (
                 <tr key={i} className="border-b border-bg-border last:border-0">
                   <td className="py-2 pr-4">
-                    <span
-                      className={`font-semibold ${
-                        p.type === 'BSL' ? 'text-accent-green' : 'text-accent-red'
-                      }`}
-                    >
+                    <span className={`font-semibold ${p.type === 'BSL' ? 'text-accent-green' : 'text-accent-red'}`}>
                       {p.type}
                     </span>
                   </td>
@@ -550,7 +692,7 @@ function LiquiditySection({ pools }: { pools: EnrichedLiquidityPool[] }) {
   );
 }
 
-// ── 11. Trade Zone Audit ──────────────────────────────────────────────────────
+// ── 11. Trade Zone Audit (FIX 6: with classification) ─────────────────────────
 
 function TradeZoneCard({ zone }: { zone: TradeZoneAudit }) {
   const isLong = zone.type === 'long';
@@ -564,11 +706,7 @@ function TradeZoneCard({ zone }: { zone: TradeZoneAudit }) {
     >
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-2">
-          <span
-            className={`font-bold uppercase text-xs ${
-              isLong ? 'text-accent-green' : 'text-accent-red'
-            }`}
-          >
+          <span className={`font-bold uppercase text-xs ${isLong ? 'text-accent-green' : 'text-accent-red'}`}>
             {zone.type}
           </span>
           <span className="text-text-muted text-xs font-mono">
@@ -606,10 +744,48 @@ function TradeZoneCard({ zone }: { zone: TradeZoneAudit }) {
   );
 }
 
-function TradeZoneSection({ zones }: { zones: TradeZoneAudit[] }) {
+function TradeZoneSection({ zones, longZones, shortZones }: {
+  zones: TradeZoneAudit[];
+  longZones?: import('../types').ClassifiedZone[];
+  shortZones?: import('../types').ClassifiedZone[];
+}) {
   return (
     <Card>
       <SectionHeader title="Trade Zone Audit" />
+      {/* Classified zones from report */}
+      {(longZones && longZones.length > 0 || shortZones && shortZones.length > 0) && (
+        <div className="mb-4">
+          <div className="text-text-muted text-xs mb-2 uppercase tracking-wider">Classified Zones</div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {longZones?.map((z, i) => (
+              <div key={`l${i}`} className="border border-accent-green border-opacity-20 rounded-lg p-3 bg-accent-green bg-opacity-5">
+                <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                  <span className="text-accent-green text-xs font-bold">LONG</span>
+                  <span className="text-text-muted text-xs font-mono">{z.from.toLocaleString()}–{z.to.toLocaleString()}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 mb-1">
+                  <ClassificationBadge classification={z.classification} />
+                  <RiskBadge risk={z.riskLevel} />
+                </div>
+                <div className="text-text-muted text-xs">P: {z.probability}% · CS: {z.confluenceScore}</div>
+              </div>
+            ))}
+            {shortZones?.map((z, i) => (
+              <div key={`s${i}`} className="border border-accent-red border-opacity-20 rounded-lg p-3 bg-accent-red bg-opacity-5">
+                <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
+                  <span className="text-accent-red text-xs font-bold">SHORT</span>
+                  <span className="text-text-muted text-xs font-mono">{z.from.toLocaleString()}–{z.to.toLocaleString()}</span>
+                </div>
+                <div className="flex flex-wrap gap-1 mb-1">
+                  <ClassificationBadge classification={z.classification} />
+                  <RiskBadge risk={z.riskLevel} />
+                </div>
+                <div className="text-text-muted text-xs">P: {z.probability}% · CS: {z.confluenceScore}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       {zones.length === 0 ? (
         <p className="text-text-muted text-xs italic">No trade zones</p>
       ) : (
@@ -639,16 +815,27 @@ export function AuditPage({ report }: Props) {
   return (
     <div className="flex flex-col gap-4 p-6">
       <DataSourcesSection sources={audit.dataSources} />
-      <ConsistencyWarning warning={audit.consistencyWarning} />
+      <MTFWarning warning={audit.mtfWarning ?? audit.consistencyWarning} />
       <MTFSection rows={audit.mtfComparison} />
+      {audit.structureDebug && audit.structureDebug.length > 0 && (
+        <StructureDebugSection rows={audit.structureDebug} />
+      )}
+      <SignalAgreementSection agreement={audit.signalAgreement} />
       <ScoreBreakdownSection items={audit.scoreBreakdown} />
       <ConfidenceBreakdownSection items={audit.confidenceBreakdown} />
+      {audit.backtest && audit.backtest.length > 0 && (
+        <BacktestPanel results={audit.backtest} />
+      )}
       <BOSSection events={audit.bosEvents} />
       <CHoCHSection events={audit.chochEvents} />
       <OrderBlocksSection blocks={audit.orderBlocks} />
       <FVGSection fvgs={audit.fvgs} />
       <LiquiditySection pools={audit.liquidityPools} />
-      <TradeZoneSection zones={audit.tradeZoneAudit} />
+      <TradeZoneSection
+        zones={audit.tradeZoneAudit}
+        longZones={report.long_zones}
+        shortZones={report.short_zones}
+      />
     </div>
   );
 }

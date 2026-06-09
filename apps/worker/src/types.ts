@@ -71,6 +71,13 @@ export interface EnrichedBOS {
   brokenSwingPrice: number;
   candleTime: number;       // unix ms of the candle where BOS occurred
   strengthScore: number;    // 0-100 based on displacement from swing
+  strengthBreakdown: {
+    displacement: number;   // 0-40 (40% weight)
+    volume: number;         // 0-25 (25% weight)
+    distance: number;       // 0-20 (20% weight)
+    speed: number;          // 0-15 (15% weight)
+    total: number;          // 0-100
+  };
 }
 
 export interface EnrichedCHoCH {
@@ -158,6 +165,51 @@ export interface MTFRow {
   liquidityCount: number;
 }
 
+// ─── New Interfaces (FIX 1, 2, 6, 7) ─────────────────────────────────────────
+
+export interface StructureDebugInfo {
+  timeframe: string;
+  candlesAnalyzed: number;
+  swingHighsDetected: number;
+  swingLowsDetected: number;
+  bosCount: number;
+  chochCount: number;
+  obCount: number;
+  fvgCount: number;
+  structureQuality: number;   // 0-100 score
+  trendStrength: number;      // 0-100
+  marketEfficiency: number;   // 0-100: how directional vs choppy
+}
+
+export interface SignalAgreement {
+  bullishSignals: string[];
+  bearishSignals: string[];
+  neutralSignals: string[];
+  agreementRatio: number;     // 0-1, how aligned the signals are
+  dominantBias: 'bullish' | 'bearish' | 'neutral';
+  confidence: number;          // 0-100
+}
+
+export interface ClassifiedZone {
+  from: number;
+  to: number;
+  reason: string;
+  classification: 'trend-following' | 'counter-trend';
+  probability: number;    // 0-100
+  confluenceScore: number; // 0-100
+  riskLevel: 'low' | 'medium' | 'high';
+}
+
+export interface BacktestResult {
+  signalType: 'OB' | 'FVG' | 'BOS' | 'CHoCH';
+  totalSignals: number;
+  wins: number;
+  losses: number;
+  winRate: number;     // 0-100
+  avgRR: number;       // average risk:reward
+  sampleNote: string;
+}
+
 export interface AuditData {
   bosEvents: EnrichedBOS[];
   chochEvents: EnrichedCHoCH[];
@@ -169,7 +221,12 @@ export interface AuditData {
   dataSources: DataSourceStatus[];
   tradeZoneAudit: TradeZoneAudit[];
   mtfComparison: MTFRow[];
-  consistencyWarning: string | null;   // set if all timeframes show identical counts
+  /** @deprecated use mtfWarning */
+  consistencyWarning: string | null;
+  mtfWarning: string | null;
+  structureDebug: StructureDebugInfo[];
+  signalAgreement: SignalAgreement;
+  backtest: BacktestResult[];
 }
 
 // ─── Main Report ──────────────────────────────────────────────────────────────
@@ -179,8 +236,8 @@ export interface TradeReport {
   timestamp: number;
   scenario_primary: string;
   scenario_alternative: string;
-  long_zones: { from: number; to: number; reason: string }[];
-  short_zones: { from: number; to: number; reason: string }[];
+  long_zones: ClassifiedZone[];
+  short_zones: ClassifiedZone[];
   invalidation_level: number;
   confidence: number;
   bullish_score: number;

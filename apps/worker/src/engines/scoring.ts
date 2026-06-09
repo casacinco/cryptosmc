@@ -1,4 +1,91 @@
-import type { MarketStructure, FlowData, InstitutionalScore, ScoreBreakdownItem, ConfidenceBreakdownItem, MTFRow } from '../types';
+import type {
+  MarketStructure, FlowData, InstitutionalScore, ScoreBreakdownItem,
+  ConfidenceBreakdownItem, MTFRow, SignalAgreement,
+} from '../types';
+
+// ─── FIX 2: Signal Agreement Model ───────────────────────────────────────────
+
+export function computeSignalAgreement(structure: MarketStructure, flow: FlowData): SignalAgreement {
+  const bullishSignals: string[] = [];
+  const bearishSignals: string[] = [];
+  const neutralSignals: string[] = [];
+
+  // 1. Structure trend
+  if (structure.trend === 'bullish') bullishSignals.push('Market structure: bullish trend');
+  else if (structure.trend === 'bearish') bearishSignals.push('Market structure: bearish trend');
+  else neutralSignals.push('Market structure: ranging');
+
+  // 2. BOS direction
+  const last3BOS = structure.bos.slice(-3);
+  const bullBOS = last3BOS.filter(b => b.type === 'bullish').length;
+  const bearBOS = last3BOS.filter(b => b.type === 'bearish').length;
+  if (bullBOS > bearBOS) bullishSignals.push(`BOS bias: ${bullBOS}/${last3BOS.length} bullish`);
+  else if (bearBOS > bullBOS) bearishSignals.push(`BOS bias: ${bearBOS}/${last3BOS.length} bearish`);
+  else if (last3BOS.length > 0) neutralSignals.push('BOS bias: balanced');
+
+  // 3. Liquidity
+  const bslCount = structure.liquidityPools.filter(p => p.type === 'BSL').length;
+  const sslCount = structure.liquidityPools.filter(p => p.type === 'SSL').length;
+  if (sslCount > bslCount) bullishSignals.push(`Liquidity: more SSL below (${sslCount} vs ${bslCount} BSL)`);
+  else if (bslCount > sslCount) bearishSignals.push(`Liquidity: more BSL above (${bslCount} vs ${sslCount} SSL)`);
+  else neutralSignals.push('Liquidity: balanced BSL/SSL');
+
+  // 4. Funding
+  const fr = flow.funding.current;
+  if (fr >= 0.001) bearishSignals.push(`Funding: extreme longs (${(fr * 100).toFixed(4)}%)`);
+  else if (fr >= 0.0001) bearishSignals.push(`Funding: positive (${(fr * 100).toFixed(4)}%)`);
+  else if (fr <= -0.001) bullishSignals.push(`Funding: extreme shorts (${(fr * 100).toFixed(4)}%)`);
+  else if (fr <= -0.0001) bullishSignals.push(`Funding: negative (${(fr * 100).toFixed(4)}%)`);
+  else neutralSignals.push(`Funding: neutral (${(fr * 100).toFixed(4)}%)`);
+
+  // 5. OI
+  const oiInterp = flow.openInterest.interpretation;
+  if (oiInterp.includes('buyers entering')) bullishSignals.push('OI: rising with price (new longs)');
+  else if (oiInterp.includes('short covering')) bullishSignals.push('OI: falling with price (short covering)');
+  else if (oiInterp.includes('new shorts')) bearishSignals.push('OI: rising as price falls (new shorts)');
+  else if (oiInterp.includes('profit-taking')) bearishSignals.push('OI: falling as price rises (profit-taking)');
+  else neutralSignals.push('OI: neutral');
+
+  // 6. Long/Short
+  const lsr = flow.longShort.ratio;
+  if (lsr > 1.5) bearishSignals.push(`L/S ratio: ${lsr.toFixed(2)} — crowded longs`);
+  else if (lsr > 1.2) bearishSignals.push(`L/S ratio: ${lsr.toFixed(2)} — mild long bias`);
+  else if (lsr < 0.7) bullishSignals.push(`L/S ratio: ${lsr.toFixed(2)} — crowded shorts`);
+  else if (lsr < 0.85) bullishSignals.push(`L/S ratio: ${lsr.toFixed(2)} — mild short bias`);
+  else neutralSignals.push(`L/S ratio: ${lsr.toFixed(2)} — balanced`);
+
+  // 7. CVD
+  const cvd = flow.cvd.divergence;
+  const cvdVals = flow.cvd.values;
+  if (cvd === 'bullish') bullishSignals.push('CVD: bullish divergence');
+  else if (cvd === 'bearish') bearishSignals.push('CVD: bearish divergence');
+  else if (cvdVals.length >= 2) {
+    const trend = cvdVals[cvdVals.length - 1] - cvdVals[0];
+    if (trend > 0) bullishSignals.push('CVD: rising (buy pressure)');
+    else if (trend < 0) bearishSignals.push('CVD: falling (sell pressure)');
+    else neutralSignals.push('CVD: flat');
+  } else neutralSignals.push('CVD: insufficient data');
+
+  // 8. Order blocks bias
+  const bullOBs = structure.orderBlocks.filter(ob => ob.type === 'bull').length;
+  const bearOBs = structure.orderBlocks.filter(ob => ob.type === 'bear').length;
+  if (bullOBs > bearOBs) bullishSignals.push(`OBs: ${bullOBs} bullish vs ${bearOBs} bearish`);
+  else if (bearOBs > bullOBs) bearishSignals.push(`OBs: ${bearOBs} bearish vs ${bullOBs} bullish`);
+  else neutralSignals.push(`OBs: balanced (${bullOBs} each)`);
+
+  const total = bullishSignals.length + bearishSignals.length + neutralSignals.length;
+  const dominantCount = Math.max(bullishSignals.length, bearishSignals.length);
+  const agreementRatio = total > 0 ? dominantCount / total : 0;
+  const dominantBias: 'bullish' | 'bearish' | 'neutral' =
+    bullishSignals.length > bearishSignals.length ? 'bullish'
+    : bearishSignals.length > bullishSignals.length ? 'bearish'
+    : 'neutral';
+
+  // Confidence = agreement ratio scaled, minimum 50
+  const confidence = Math.round(50 + agreementRatio * 50);
+
+  return { bullishSignals, bearishSignals, neutralSignals, agreementRatio, dominantBias, confidence };
+}
 
 export function computeScores(structure: MarketStructure, flow: FlowData, heatmapData?: any): InstitutionalScore {
   let bullishRaw = 0;
@@ -21,16 +108,15 @@ export function computeScores(structure: MarketStructure, flow: FlowData, heatma
   bearishRaw += liqBearish;
   details['liquidity'] = liqBullish - liqBearish;
 
-  // Funding (10%) — Binance decimal: 0.0001 = 0.01%/8h typical
+  // Funding (10%)
   const fundingRate = flow.funding.current;
-  // >= catches the Binance standard rate (0.0001 = 0.01%) which IS a positive funding signal
-  if      (fundingRate >= 0.001)   { bearishRaw += 10; details['funding'] = -10; } // ≥0.1%  extreme long
-  else if (fundingRate >= 0.0005)  { bearishRaw += 7;  details['funding'] = -7;  } // ≥0.05% very high
-  else if (fundingRate >= 0.0001)  { bearishRaw += 4;  details['funding'] = -4;  } // ≥0.01% positive (standard rate)
-  else if (fundingRate <= -0.001)  { bullishRaw += 10; details['funding'] = 10;  } // ≤-0.1% extreme short
-  else if (fundingRate <= -0.0005) { bullishRaw += 7;  details['funding'] = 7;   } // ≤-0.05% very negative
-  else if (fundingRate <= -0.0001) { bullishRaw += 4;  details['funding'] = 4;   } // ≤-0.01% negative
-  else                             {                   details['funding'] = 0;   } // truly neutral (near zero)
+  if      (fundingRate >= 0.001)   { bearishRaw += 10; details['funding'] = -10; }
+  else if (fundingRate >= 0.0005)  { bearishRaw += 7;  details['funding'] = -7;  }
+  else if (fundingRate >= 0.0001)  { bearishRaw += 4;  details['funding'] = -4;  }
+  else if (fundingRate <= -0.001)  { bullishRaw += 10; details['funding'] = 10;  }
+  else if (fundingRate <= -0.0005) { bullishRaw += 7;  details['funding'] = 7;   }
+  else if (fundingRate <= -0.0001) { bullishRaw += 4;  details['funding'] = 4;   }
+  else                             {                   details['funding'] = 0;   }
 
   // L/S Ratio (10%)
   const lsRatio = flow.longShort.ratio;
@@ -40,18 +126,17 @@ export function computeScores(structure: MarketStructure, flow: FlowData, heatma
   else if (lsRatio < 0.85){ bullishRaw += 5;  details['longShort'] = 5;   }
   else                     {                   details['longShort'] = 0;   }
 
-  // CVD (10%) — divergence = strong signal; no divergence = use trend alignment as weaker signal
+  // CVD (10%)
   const cvdDiv = flow.cvd.divergence;
   const cvdValues = flow.cvd.values;
   if (cvdDiv === 'bullish')      { bullishRaw += 10; details['cvd'] = 10;  }
   else if (cvdDiv === 'bearish') { bearishRaw += 10; details['cvd'] = -10; }
   else if (cvdValues.length >= 2) {
-    // No divergence: check if CVD trend aligns with price trend (weaker signal, ±5)
     const cvdTrend = cvdValues[cvdValues.length - 1] - cvdValues[0];
     if (cvdTrend > 0 && structure.trend === 'bullish')      { bullishRaw += 5; details['cvd'] = 5;  }
     else if (cvdTrend < 0 && structure.trend === 'bearish') { bearishRaw += 5; details['cvd'] = -5; }
-    else if (cvdTrend > 0 && structure.trend === 'bearish') { bullishRaw += 3; details['cvd'] = 3;  } // hidden bull div
-    else if (cvdTrend < 0 && structure.trend === 'bullish') { bearishRaw += 3; details['cvd'] = -3; } // hidden bear div
+    else if (cvdTrend > 0 && structure.trend === 'bearish') { bullishRaw += 3; details['cvd'] = 3;  }
+    else if (cvdTrend < 0 && structure.trend === 'bullish') { bearishRaw += 3; details['cvd'] = -3; }
     else details['cvd'] = 0;
   } else details['cvd'] = 0;
 
@@ -76,9 +161,9 @@ export function computeScores(structure: MarketStructure, flow: FlowData, heatma
   const bullish = Math.round((bullishRaw / total) * 100);
   const bearish = 100 - bullish;
 
-  // Confidence: how far from 50/50
-  const spread = Math.abs(bullish - bearish);
-  const confidence = Math.round(50 + spread / 2);
+  // FIX 2: use signal agreement for confidence
+  const agreement = computeSignalAgreement(structure, flow);
+  const confidence = agreement.confidence;
 
   return { bullish, bearish, confidence, details };
 }
@@ -250,21 +335,37 @@ export function buildScoreBreakdown(structure: MarketStructure, flow: FlowData):
   return items;
 }
 
+/** FIX 2: Maps SignalAgreement to ConfidenceBreakdownItem[] for backward compatibility */
 export function buildConfidenceBreakdown(
   structure: MarketStructure,
   flow: FlowData,
   score: InstitutionalScore,
   mtfRows: MTFRow[],
 ): ConfidenceBreakdownItem[] {
+  const agreement = computeSignalAgreement(structure, flow);
   const items: ConfidenceBreakdownItem[] = [];
 
-  // Base confidence from score spread
-  const spread = Math.abs(score.bullish - score.bearish);
+  // Summary item
   items.push({
-    factor: 'Score Spread',
-    value: Math.round(spread / 2),
-    reason: `${score.bullish}% bullish vs ${score.bearish}% bearish — ${spread}pt spread gives base confidence`,
+    factor: 'Signal Agreement',
+    value: Math.round(agreement.agreementRatio * 100),
+    reason: `${agreement.bullishSignals.length} bullish / ${agreement.neutralSignals.length} neutral / ${agreement.bearishSignals.length} bearish signals → ${agreement.dominantBias} bias`,
   });
+
+  // Bullish signals
+  for (const sig of agreement.bullishSignals) {
+    items.push({ factor: 'Bullish Signal', value: 1, reason: sig });
+  }
+
+  // Bearish signals
+  for (const sig of agreement.bearishSignals) {
+    items.push({ factor: 'Bearish Signal', value: -1, reason: sig });
+  }
+
+  // Neutral signals
+  for (const sig of agreement.neutralSignals) {
+    items.push({ factor: 'Neutral Signal', value: 0, reason: sig });
+  }
 
   // MTF trend agreement
   const trends = mtfRows.map(r => r.trend);
@@ -287,104 +388,6 @@ export function buildConfidenceBreakdown(
       factor: 'MTF Trend Agreement',
       value: -5,
       reason: 'Timeframes disagree on trend direction — reduces confidence',
-    });
-  }
-
-  // OB + FVG confluence
-  const bullOBs = structure.orderBlocks.filter(ob => ob.type === 'bull').length;
-  const bullFVGs = structure.fvgs.filter(f => f.type === 'bull').length;
-  const bearOBs = structure.orderBlocks.filter(ob => ob.type === 'bear').length;
-  const bearFVGs = structure.fvgs.filter(f => f.type === 'bear').length;
-  if ((bullOBs > 0 && bullFVGs > 0) || (bearOBs > 0 && bearFVGs > 0)) {
-    items.push({
-      factor: 'OB + FVG Confluence',
-      value: 15,
-      reason: `OBs and FVGs present in same direction (Bull: ${bullOBs} OB/${bullFVGs} FVG, Bear: ${bearOBs} OB/${bearFVGs} FVG)`,
-    });
-  } else {
-    items.push({
-      factor: 'OB + FVG Confluence',
-      value: 0,
-      reason: 'No OB/FVG overlap detected in same direction',
-    });
-  }
-
-  // Funding confirmation
-  const fundingRate = flow.funding.current;
-  const fundingAlignedBearish = fundingRate > 0.0001 && structure.trend === 'bearish';
-  const fundingAlignedBullish = fundingRate < -0.0001 && structure.trend === 'bullish';
-  if (fundingAlignedBearish || fundingAlignedBullish) {
-    items.push({
-      factor: 'Funding Confirmation',
-      value: 10,
-      reason: `Funding rate ${fundingAlignedBearish ? 'positive' : 'negative'} aligns with ${structure.trend} trend`,
-    });
-  } else if ((fundingRate > 0.0001 && structure.trend === 'bullish') || (fundingRate < -0.0001 && structure.trend === 'bearish')) {
-    items.push({
-      factor: 'Funding Confirmation',
-      value: -5,
-      reason: `Funding conflicts with ${structure.trend} trend — reduces conviction`,
-    });
-  } else {
-    items.push({
-      factor: 'Funding Confirmation',
-      value: 0,
-      reason: 'Funding near zero — no directional confirmation',
-    });
-  }
-
-  // CVD alignment
-  const cvdDiv = flow.cvd.divergence;
-  if (cvdDiv !== 'none') {
-    const aligned = (cvdDiv === 'bullish' && structure.trend === 'bullish') ||
-      (cvdDiv === 'bearish' && structure.trend === 'bearish');
-    items.push({
-      factor: 'CVD Alignment',
-      value: aligned ? 10 : -3,
-      reason: aligned
-        ? `CVD ${cvdDiv} divergence confirms ${structure.trend} structure`
-        : `CVD ${cvdDiv} divergence conflicts with ${structure.trend} structure`,
-    });
-  } else {
-    items.push({
-      factor: 'CVD Alignment',
-      value: 0,
-      reason: 'No CVD divergence detected',
-    });
-  }
-
-  // Missing OI data
-  if (flow.openInterest.current === 0) {
-    items.push({
-      factor: 'Open Interest Data',
-      value: -10,
-      reason: 'OI data unavailable or zero — cannot confirm institutional positioning',
-    });
-  } else {
-    items.push({
-      factor: 'Open Interest Data',
-      value: 5,
-      reason: `OI data available (${flow.openInterest.current.toLocaleString()}) — ${flow.openInterest.interpretation}`,
-    });
-  }
-
-  // CHoCH confirmation
-  const recentCHoCH = structure.choch.length > 0;
-  if (recentCHoCH) {
-    const lastChoch = structure.choch[structure.choch.length - 1];
-    const aligned = lastChoch.type === structure.trend || structure.trend === 'ranging';
-    items.push({
-      factor: 'CHoCH Confirmation',
-      value: aligned ? 8 : -5,
-      reason: aligned
-        ? `Recent CHoCH at ${lastChoch.price.toLocaleString()} confirms structure shift`
-        : `CHoCH direction conflicts with current trend — possible reversal forming`,
-    });
-  } else {
-    items.push({
-      factor: 'CHoCH Confirmation',
-      value: 0,
-      reason: 'No recent CHoCH events',
     });
   }
 

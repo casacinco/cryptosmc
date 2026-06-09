@@ -1,11 +1,11 @@
 import type { Candle, FlowData } from '../types';
 
 export function interpretOpenInterest(priceDelta: number, oiDelta: number): string {
-  if (priceDelta > 0 && oiDelta > 0) return 'OI rising with price: buyers entering — bullish confirmation';
-  if (priceDelta > 0 && oiDelta < 0) return 'OI falling as price rises: profit-taking — potential weakness';
-  if (priceDelta < 0 && oiDelta > 0) return 'OI rising as price falls: new shorts entering — bearish confirmation';
-  if (priceDelta < 0 && oiDelta < 0) return 'OI falling with price: short covering — potential reversal';
-  return 'Neutral / inconclusive';
+  if (priceDelta > 0 && oiDelta > 0) return 'Price↑ OI↑ — bullish continuation: new longs entering buyers entering';
+  if (priceDelta > 0 && oiDelta < 0) return 'Price↑ OI↓ — short covering: longs closing into rally';
+  if (priceDelta < 0 && oiDelta > 0) return 'Price↓ OI↑ — new shorts entering: bearish continuation';
+  if (priceDelta < 0 && oiDelta < 0) return 'Price↓ OI↓ — long liquidation: forced selling profit-taking';
+  return 'Price and OI movement inconclusive';
 }
 
 export function interpretFunding(rate: number): { status: string; meaning: string } {

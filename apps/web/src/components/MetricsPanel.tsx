@@ -14,6 +14,57 @@ function MetricCard({ title, value, sub, color }: { title: string; value: string
   );
 }
 
+// FIX 4: OI interpretation matrix display
+function OIInterpretation({ interpretation, change24h }: { interpretation: string; change24h: number }) {
+  // Parse the matrix label from the interpretation string
+  let scenario = '';
+  let description = '';
+  let scenarioColor = '#8888aa';
+
+  if (interpretation.startsWith('Price↑ OI↑')) {
+    scenario = 'Price↑ OI↑';
+    description = 'Bullish continuation — new longs entering';
+    scenarioColor = '#00d084';
+  } else if (interpretation.startsWith('Price↑ OI↓')) {
+    scenario = 'Price↑ OI↓';
+    description = 'Short covering — longs closing into rally';
+    scenarioColor = '#4a9eff';
+  } else if (interpretation.startsWith('Price↓ OI↑')) {
+    scenario = 'Price↓ OI↑';
+    description = 'New shorts entering — bearish continuation';
+    scenarioColor = '#ff4757';
+  } else if (interpretation.startsWith('Price↓ OI↓')) {
+    scenario = 'Price↓ OI↓';
+    description = 'Long liquidation — forced selling';
+    scenarioColor = '#ffd700';
+  } else {
+    scenario = '—';
+    description = interpretation;
+  }
+
+  const oiColor = change24h > 1 ? '#00d084' : change24h < -1 ? '#ff4757' : undefined;
+
+  return (
+    <div className="bg-bg-card border border-bg-border rounded-xl p-4">
+      <p className="text-text-muted text-xs mb-1">Open Interest</p>
+      <div className="flex items-center gap-2 mb-1">
+        <span
+          className="inline-block px-2 py-0.5 rounded text-xs font-bold font-mono"
+          style={{ backgroundColor: `${scenarioColor}22`, color: scenarioColor }}
+        >
+          {scenario}
+        </span>
+        {change24h !== 0 && (
+          <span className="text-xs font-bold" style={oiColor ? { color: oiColor } : { color: '#8888aa' }}>
+            {change24h > 0 ? '+' : ''}{change24h.toFixed(2)}%
+          </span>
+        )}
+      </div>
+      <p className="text-text-secondary text-xs leading-snug">{description}</p>
+    </div>
+  );
+}
+
 export function MetricsPanel({ flow }: Props) {
   const fundingColor =
     flow.funding.current >= 0.001  ? '#ff4757' :
@@ -29,17 +80,9 @@ export function MetricsPanel({ flow }: Props) {
 
   return (
     <div className="grid grid-cols-2 gap-3">
-      <MetricCard
-        title="Open Interest"
-        value={flow.openInterest.current > 0
-          ? flow.openInterest.current >= 1e9
-            ? `$${(flow.openInterest.current / 1e9).toFixed(2)}B`
-            : `$${(flow.openInterest.current / 1e6).toFixed(0)}M`
-          : '—'}
-        sub={flow.openInterest.change24h !== 0
-          ? `${flow.openInterest.change24h > 0 ? '+' : ''}${flow.openInterest.change24h.toFixed(2)}% 24h · ${flow.openInterest.interpretation}`
-          : flow.openInterest.interpretation}
-        color={flow.openInterest.change24h > 1 ? '#00d084' : flow.openInterest.change24h < -1 ? '#ff4757' : undefined}
+      <OIInterpretation
+        interpretation={flow.openInterest.interpretation}
+        change24h={flow.openInterest.change24h}
       />
       <MetricCard
         title="Funding Rate"

@@ -1,4 +1,4 @@
-import type { MarketStructure, FlowData, InstitutionalScore, TradeReport } from '../types';
+import type { MarketStructure, FlowData, InstitutionalScore, TradeReport, ClassifiedZone } from '../types';
 
 export function computeConfluence(structure: MarketStructure, flow: FlowData, score: InstitutionalScore) {
   let longScore = 0;
@@ -39,32 +39,97 @@ export function computeConfluence(structure: MarketStructure, flow: FlowData, sc
   };
 }
 
+// ─── FIX 6: Trade Zone Classification ────────────────────────────────────────
+
+function classifyZone(
+  zoneType: 'long' | 'short',
+  trend: MarketStructure['trend'],
+  confluenceScore: number,
+  reasons: string[],
+): ClassifiedZone & { type: 'long' | 'short'; from: number; to: number } {
+  // Placeholder — actual from/to are set by caller
+  const classification: 'trend-following' | 'counter-trend' =
+    (zoneType === 'long' && trend === 'bullish') ||
+    (zoneType === 'short' && trend === 'bearish')
+      ? 'trend-following'
+      : 'counter-trend';
+
+  let probability: number;
+  if (classification === 'trend-following') {
+    probability = Math.min(75, 55 + Math.round(confluenceScore / 10));
+  } else {
+    probability = Math.min(55, 35 + Math.round(confluenceScore / 10));
+  }
+
+  const riskLevel: 'low' | 'medium' | 'high' =
+    classification === 'trend-following'
+      ? 'low'
+      : confluenceScore >= 50
+      ? 'medium'
+      : 'high';
+
+  return {
+    from: 0,
+    to: 0,
+    reason: reasons.join(' + '),
+    classification,
+    probability,
+    confluenceScore,
+    riskLevel,
+    type: zoneType,
+  };
+}
+
 export function generateZones(structure: MarketStructure, flow: FlowData): {
   long_zones: TradeReport['long_zones'];
   short_zones: TradeReport['short_zones'];
   invalidation_level: number;
 } {
-  const long_zones: TradeReport['long_zones'] = [];
-  const short_zones: TradeReport['short_zones'] = [];
+  const long_zones: ClassifiedZone[] = [];
+  const short_zones: ClassifiedZone[] = [];
 
   for (const ob of structure.orderBlocks) {
     if (ob.type === 'bull') {
       const reasons: string[] = ['Bullish OB'];
       const matchingFVG = structure.fvgs.find(f => f.type === 'bull' && f.start >= ob.low && f.end <= ob.high);
       if (matchingFVG) reasons.push('FVG overlap');
-      long_zones.push({ from: ob.low, to: ob.high, reason: reasons.join(' + ') });
+      const confluenceScore = Math.min(100, reasons.length * 40 + 20);
+      const baseZone = classifyZone('long', structure.trend, confluenceScore, reasons);
+      long_zones.push({
+        from: ob.low,
+        to: ob.high,
+        reason: baseZone.reason,
+        classification: baseZone.classification,
+        probability: baseZone.probability,
+        confluenceScore: baseZone.confluenceScore,
+        riskLevel: baseZone.riskLevel,
+      });
     } else {
       const reasons: string[] = ['Bearish OB'];
       const matchingFVG = structure.fvgs.find(f => f.type === 'bear' && f.start >= ob.low && f.end <= ob.high);
       if (matchingFVG) reasons.push('FVG overlap');
-      short_zones.push({ from: ob.low, to: ob.high, reason: reasons.join(' + ') });
+      const confluenceScore = Math.min(100, reasons.length * 40 + 20);
+      const baseZone = classifyZone('short', structure.trend, confluenceScore, reasons);
+      short_zones.push({
+        from: ob.low,
+        to: ob.high,
+        reason: baseZone.reason,
+        classification: baseZone.classification,
+        probability: baseZone.probability,
+        confluenceScore: baseZone.confluenceScore,
+        riskLevel: baseZone.riskLevel,
+      });
     }
   }
 
   const swingHighPrices = structure.swingHighs.map(s => s.price);
   const invalidation_level = swingHighPrices.length > 0 ? Math.max(...swingHighPrices) : 0;
 
-  return { long_zones: long_zones.slice(0, 3), short_zones: short_zones.slice(0, 3), invalidation_level };
+  return {
+    long_zones: long_zones.slice(0, 3),
+    short_zones: short_zones.slice(0, 3),
+    invalidation_level,
+  };
 }
 
 export function generateScenarios(structure: MarketStructure, flow: FlowData, score: InstitutionalScore): {
@@ -72,8 +137,6 @@ export function generateScenarios(structure: MarketStructure, flow: FlowData, sc
   alternative: string;
 } {
   const trend = structure.trend;
-  const lsRatio = flow.longShort.ratio;
-  const funding = flow.funding.current;
 
   let primary: string;
   let alternative: string;

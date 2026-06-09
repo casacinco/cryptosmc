@@ -3,9 +3,12 @@ import type { Env, TradeReport, AuditData, DataSourceStatus, TradeZoneAudit, MTF
 import { fetchCandles, fetchOpenInterest, fetchOpenInterestHistory, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
 import { fetchLiquidationHeatmap } from '../providers/coinglass';
 import { fetchOI as coinalyzeOI, fetchFunding as coinalyzeFunding, fetchLongShortHistory as coinalyzeLS, toCoinalyzeSymbol } from '../providers/coinalyze';
-import { analyzeStructure, enrichBOS, enrichCHoCH, enrichOrderBlocks, enrichFVGs, enrichLiquidityPools } from '../engines/smc';
+import {
+  analyzeStructure, enrichBOS, enrichCHoCH, enrichOrderBlocks, enrichFVGs, enrichLiquidityPools,
+  getStructureDebugInfo, backtestOrderBlocks, backtestFVGs,
+} from '../engines/smc';
 import { analyzeFlow } from '../engines/flow';
-import { computeScores, buildScoreBreakdown, buildConfidenceBreakdown } from '../engines/scoring';
+import { computeScores, buildScoreBreakdown, buildConfidenceBreakdown, computeSignalAgreement } from '../engines/scoring';
 import { generateZones, generateScenarios } from '../engines/confluence';
 import { getCache, setCache } from '../db/cache';
 
@@ -89,7 +92,17 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
       },
     ];
 
-    // Consistency check: warn if all three TFs have identical counts
+    // FIX 1: Structure debug info per timeframe
+    const debug1D = getStructureDebugInfo(candles1D, '1D');
+    const debug4H = getStructureDebugInfo(candles4H, '4H');
+    const debug1H = getStructureDebugInfo(candles1H, '1H');
+
+    const mtfWarning = (
+      debug1D.bosCount === debug4H.bosCount && debug4H.bosCount === debug1H.bosCount &&
+      debug1D.chochCount === debug4H.chochCount
+    ) ? 'Possible timeframe calculation issue: all timeframes returned identical BOS/CHoCH counts.' : null;
+
+    // Backward compat: also set consistencyWarning
     const allSame =
       mtfRows.every(
         r =>
@@ -190,6 +203,13 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
     const scoreBreakdown = buildScoreBreakdown(structure4H, flow);
     const confidenceBreakdown = buildConfidenceBreakdown(structure4H, flow, score, mtfRows);
 
+    // FIX 2: Signal agreement
+    const signalAgreement = computeSignalAgreement(structure4H, flow);
+
+    // FIX 7: Backtest
+    const backtestOB = backtestOrderBlocks(candles4H);
+    const backtestFVG = backtestFVGs(candles4H);
+
     const auditData: AuditData = {
       bosEvents: enrichedBOS4H,
       chochEvents: enrichedCHoCH4H,
@@ -202,6 +222,10 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
       tradeZoneAudit,
       mtfComparison: mtfRows,
       consistencyWarning,
+      mtfWarning,
+      structureDebug: [debug1D, debug4H, debug1H],
+      signalAgreement,
+      backtest: [backtestOB, backtestFVG],
     };
 
     const report: TradeReport = {

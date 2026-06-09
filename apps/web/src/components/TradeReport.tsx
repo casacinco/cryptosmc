@@ -1,7 +1,49 @@
-import type { TradeReport } from '../types';
+import type { TradeReport, ClassifiedZone } from '../types';
 
 interface Props {
   report: TradeReport;
+}
+
+function ClassificationBadge({ classification }: { classification: ClassifiedZone['classification'] }) {
+  return classification === 'trend-following' ? (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-500 bg-opacity-20 text-blue-400">
+      Trend Following
+    </span>
+  ) : (
+    <span className="inline-block px-2 py-0.5 rounded-full text-xs font-semibold bg-orange-500 bg-opacity-20 text-orange-400">
+      Counter Trend
+    </span>
+  );
+}
+
+function RiskBadge({ risk }: { risk: ClassifiedZone['riskLevel'] }) {
+  const cls =
+    risk === 'low' ? 'bg-accent-green bg-opacity-20 text-accent-green' :
+    risk === 'medium' ? 'bg-yellow-500 bg-opacity-20 text-yellow-400' :
+    'bg-accent-red bg-opacity-20 text-accent-red';
+  return (
+    <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold uppercase ${cls}`}>
+      {risk} risk
+    </span>
+  );
+}
+
+function ZoneCard({ zone, color }: { zone: ClassifiedZone; color: 'green' | 'red' }) {
+  const borderColor = color === 'green' ? 'border-accent-green border-opacity-20' : 'border-accent-red border-opacity-20';
+  const priceColor = color === 'green' ? 'text-accent-green' : 'text-accent-red';
+  return (
+    <div className={`bg-bg-secondary rounded p-2.5 border ${borderColor}`}>
+      <p className={`${priceColor} text-xs font-bold mb-1`}>
+        {zone.from.toLocaleString()} – {zone.to.toLocaleString()}
+      </p>
+      <p className="text-text-muted text-xs mb-1.5">{zone.reason}</p>
+      <div className="flex flex-wrap gap-1.5 items-center">
+        <ClassificationBadge classification={zone.classification} />
+        <RiskBadge risk={zone.riskLevel} />
+        <span className="text-text-muted text-xs">P: {zone.probability}%</span>
+      </div>
+    </div>
+  );
 }
 
 export function TradeReportPanel({ report }: Props) {
@@ -30,12 +72,7 @@ export function TradeReportPanel({ report }: Props) {
           {report.long_zones.length > 0 ? (
             <div className="space-y-1.5">
               {report.long_zones.map((z, i) => (
-                <div key={i} className="bg-bg-secondary rounded p-2 border border-accent-green border-opacity-20">
-                  <p className="text-accent-green text-xs font-bold">
-                    {z.from.toLocaleString()} – {z.to.toLocaleString()}
-                  </p>
-                  <p className="text-text-muted text-xs mt-0.5">{z.reason}</p>
-                </div>
+                <ZoneCard key={i} zone={z} color="green" />
               ))}
             </div>
           ) : (
@@ -47,12 +84,7 @@ export function TradeReportPanel({ report }: Props) {
           {report.short_zones.length > 0 ? (
             <div className="space-y-1.5">
               {report.short_zones.map((z, i) => (
-                <div key={i} className="bg-bg-secondary rounded p-2 border border-accent-red border-opacity-20">
-                  <p className="text-accent-red text-xs font-bold">
-                    {z.from.toLocaleString()} – {z.to.toLocaleString()}
-                  </p>
-                  <p className="text-text-muted text-xs mt-0.5">{z.reason}</p>
-                </div>
+                <ZoneCard key={i} zone={z} color="red" />
               ))}
             </div>
           ) : (

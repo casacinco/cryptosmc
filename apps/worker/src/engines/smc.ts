@@ -1,6 +1,7 @@
 import type {
   Candle, SwingPoint, OrderBlock, FVG, LiquidityPool, MarketStructure,
   EnrichedBOS, EnrichedCHoCH, EnrichedOrderBlock, EnrichedFVG, EnrichedLiquidityPool,
+  StructureDebugInfo, BacktestResult,
 } from '../types';
 
 export function findSwingHighs(candles: Candle[], range = 2): SwingPoint[] {
@@ -182,9 +183,49 @@ export function analyzeStructure(symbol: string, timeframe: string, candles: Can
   };
 }
 
+// ─── FIX 1: Structure Debug Info ──────────────────────────────────────────────
+
+export function getStructureDebugInfo(candles: Candle[], timeframe: string): StructureDebugInfo {
+  const structure = analyzeStructure('', timeframe, candles);
+  const allSwingHighs = findSwingHighs(candles);
+  const allSwingLows = findSwingLows(candles);
+  const allBOS = detectBOS(candles);
+  const allCHoCH = detectCHoCH(candles);
+
+  // Structure quality: diversity of signals (not all same direction)
+  const bosDirectionRatio = allBOS.length > 0
+    ? Math.abs(allBOS.filter(b => b.type === 'bullish').length - allBOS.filter(b => b.type === 'bearish').length) / allBOS.length
+    : 0;
+  const structureQuality = Math.round((1 - bosDirectionRatio) * 50 + (Math.min(allBOS.length, 10) / 10) * 50);
+
+  // Trend strength: dominance of one direction in recent BOS
+  const last5BOS = allBOS.slice(-5);
+  const bullBOS = last5BOS.filter(b => b.type === 'bullish').length;
+  const bearBOS = last5BOS.filter(b => b.type === 'bearish').length;
+  const trendStrength = last5BOS.length > 0 ? Math.round(Math.max(bullBOS, bearBOS) / last5BOS.length * 100) : 50;
+
+  // Market efficiency: price range covered vs candle count (higher = more directional)
+  const priceRange = candles.length > 0 ? Math.abs(candles[candles.length - 1].close - candles[0].close) / candles[0].close * 100 : 0;
+  const marketEfficiency = Math.min(100, Math.round(priceRange / (candles.length / 10)));
+
+  return {
+    timeframe,
+    candlesAnalyzed: candles.length,
+    swingHighsDetected: allSwingHighs.length,
+    swingLowsDetected: allSwingLows.length,
+    bosCount: allBOS.length,
+    chochCount: allCHoCH.length,
+    obCount: structure.orderBlocks.length,
+    fvgCount: structure.fvgs.length,
+    structureQuality,
+    trendStrength,
+    marketEfficiency,
+  };
+}
+
 // ─── Enrichment Functions ─────────────────────────────────────────────────────
 
-/** Returns enriched BOS with candle timestamps and strength scores */
+/** Returns enriched BOS with candle timestamps and strength scores (FIX 5: 4-factor breakdown) */
 export function enrichBOS(
   candles: Candle[],
   bos: MarketStructure['bos'],
@@ -200,18 +241,45 @@ export function enrichBOS(
     // Find the previous swing that was broken
     let brokenSwingPrice = b.price;
     if (b.type === 'bullish') {
-      // Find the highest swing high before this index that is lower
       const prevHighs = highs.filter(h => h.index < b.index);
       if (prevHighs.length > 0) {
         brokenSwingPrice = prevHighs[prevHighs.length - 1].price;
       }
     } else {
-      // Find the lowest swing low before this index that is higher
       const prevLows = lows.filter(l => l.index < b.index);
       if (prevLows.length > 0) {
         brokenSwingPrice = prevLows[prevLows.length - 1].price;
       }
     }
+
+    // FIX 5: 4-factor strength breakdown
+    // Displacement (40%): % move from broken swing to break candle
+    const displacement = Math.min(40, Math.abs(b.price - brokenSwingPrice) / (brokenSwingPrice || 1) * 400);
+
+    // Volume (25%): break candle volume vs average of prior 10 candles
+    const priorSlice = candles.slice(Math.max(0, b.index - 10), b.index);
+    const avgVol = priorSlice.length > 0
+      ? priorSlice.reduce((s, c) => s + c.volume, 0) / priorSlice.length
+      : 1;
+    const breakCandle = candles[b.index];
+    const volumeScore = breakCandle ? Math.min(25, (breakCandle.volume / (avgVol || 1)) * 12.5) : 0;
+
+    // Distance (20%): how far the broken swing was from current structure
+    const distancePct = brokenSwingPrice > 0 ? Math.abs(b.price - brokenSwingPrice) / brokenSwingPrice * 100 : 0;
+    const distanceScore = Math.min(20, distancePct * 4);
+
+    // Speed (15%): simplified — full score since we detect at break candle
+    const speedScore = 15;
+
+    const total = Math.round(displacement + volumeScore + distanceScore + speedScore);
+
+    const strengthBreakdown = {
+      displacement: Math.round(displacement),
+      volume: Math.round(volumeScore),
+      distance: Math.round(distanceScore),
+      speed: speedScore,
+      total: Math.min(100, total),
+    };
 
     const strengthScore = Math.min(
       100,
@@ -226,6 +294,7 @@ export function enrichBOS(
       brokenSwingPrice,
       candleTime,
       strengthScore,
+      strengthBreakdown,
     };
   });
 }
@@ -399,4 +468,73 @@ export function enrichLiquidityPools(candles: Candle[], pools: LiquidityPool[]):
       relevance,
     };
   });
+}
+
+// ─── FIX 7: Backtest Functions ────────────────────────────────────────────────
+
+export function backtestOrderBlocks(candles: Candle[]): BacktestResult {
+  const obs = findOrderBlocks(candles.slice(0, Math.floor(candles.length * 0.7)));
+  let wins = 0, losses = 0, totalRR = 0;
+  const testCandles = candles.slice(Math.floor(candles.length * 0.7));
+
+  for (const ob of obs) {
+    const touched = testCandles.some(c =>
+      ob.type === 'bull' ? (c.low <= ob.high && c.low >= ob.low) :
+      (c.high >= ob.low && c.high <= ob.high)
+    );
+    if (!touched) continue;
+    const touchIdx = testCandles.findIndex(c =>
+      ob.type === 'bull' ? (c.low <= ob.high && c.low >= ob.low) :
+      (c.high >= ob.low && c.high <= ob.high)
+    );
+    if (touchIdx < 0 || touchIdx >= testCandles.length - 1) continue;
+    const obSize = ob.high - ob.low;
+    const afterCandles = testCandles.slice(touchIdx + 1, touchIdx + 6);
+    const won = ob.type === 'bull'
+      ? afterCandles.some(c => c.close > ob.high + obSize)
+      : afterCandles.some(c => c.close < ob.low - obSize);
+    if (won) { wins++; totalRR += 2; }
+    else { losses++; totalRR += -1; }
+  }
+  const total = wins + losses;
+  return {
+    signalType: 'OB',
+    totalSignals: obs.length,
+    wins,
+    losses,
+    winRate: total > 0 ? Math.round(wins / total * 100) : 0,
+    avgRR: total > 0 ? Math.round(totalRR / total * 100) / 100 : 0,
+    sampleNote: `Based on ${candles.length} candles (70/30 split)`,
+  };
+}
+
+export function backtestFVGs(candles: Candle[]): BacktestResult {
+  const fvgs = findFairValueGaps(candles.slice(0, Math.floor(candles.length * 0.7)));
+  let wins = 0, losses = 0, totalRR = 0;
+  const testCandles = candles.slice(Math.floor(candles.length * 0.7));
+
+  for (const fvg of fvgs) {
+    const gapSize = fvg.end - fvg.start;
+    const touchIdx = testCandles.findIndex(c =>
+      fvg.type === 'bull' ? (c.low <= fvg.end && c.low >= fvg.start) :
+      (c.high >= fvg.start && c.high <= fvg.end)
+    );
+    if (touchIdx < 0 || touchIdx >= testCandles.length - 1) continue;
+    const afterCandles = testCandles.slice(touchIdx + 1, touchIdx + 5);
+    const won = fvg.type === 'bull'
+      ? afterCandles.some(c => c.close > fvg.end + gapSize)
+      : afterCandles.some(c => c.close < fvg.start - gapSize);
+    if (won) { wins++; totalRR += 2; }
+    else { losses++; totalRR += -1; }
+  }
+  const total = wins + losses;
+  return {
+    signalType: 'FVG',
+    totalSignals: fvgs.length,
+    wins,
+    losses,
+    winRate: total > 0 ? Math.round(wins / total * 100) : 0,
+    avgRR: total > 0 ? Math.round(totalRR / total * 100) / 100 : 0,
+    sampleNote: `Based on ${candles.length} candles (70/30 split)`,
+  };
 }
