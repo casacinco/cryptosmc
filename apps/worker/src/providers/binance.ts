@@ -24,6 +24,14 @@ export async function fetchOpenInterest(symbol: string): Promise<{ symbol: strin
   return res.json();
 }
 
+/** Returns last 25 hourly OI snapshots — used to compute 24h delta */
+export async function fetchOpenInterestHistory(symbol: string): Promise<{ symbol: string; sumOpenInterest: string; timestamp: number }[]> {
+  const url = `${BASE}/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=25`;
+  const res = await fetch(url);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export async function fetchFundingRate(symbol: string, limit = 1): Promise<{ symbol: string; fundingRate: string; fundingTime: number }[]> {
   const url = `${BASE}/fapi/v1/fundingRate?symbol=${symbol}&limit=${limit}`;
   const res = await fetch(url);

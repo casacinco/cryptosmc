@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import type { Env } from '../types';
-import { fetchCandles, fetchOpenInterest, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
+import { fetchCandles, fetchOpenInterest, fetchOpenInterestHistory, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
 import { analyzeFlow } from '../engines/flow';
 import { getCache, setCache } from '../db/cache';
 
@@ -12,14 +12,15 @@ export async function handleFlow(c: Context<{ Bindings: Env }>) {
   if (cached) return c.json(cached);
 
   try {
-    const [candles, oiRaw, fundingRaw, lsRaw] = await Promise.all([
+    const [candles, oiRaw, oiHistory, fundingRaw, lsRaw] = await Promise.all([
       fetchCandles(symbol, '4h', 100),
       fetchOpenInterest(symbol),
+      fetchOpenInterestHistory(symbol),
       fetchFundingRate(symbol, 1),
       fetchLongShortRatio(symbol, '5m', 1),
     ]);
 
-    const flow = analyzeFlow(candles, oiRaw, fundingRaw[0] || null, lsRaw[0] || null);
+    const flow = analyzeFlow(candles, oiRaw, oiHistory, fundingRaw[0] || null, lsRaw[0] || null);
     await setCache(c.env.DB, cacheKey, flow, 120);
     return c.json(flow);
   } catch (err: any) {

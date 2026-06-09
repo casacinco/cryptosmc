@@ -54,15 +54,25 @@ export function detectCVDDivergence(candles: Candle[], cvd: number[]): 'bullish'
   return 'none';
 }
 
-export function analyzeFlow(candles: Candle[], oiData: any, fundingData: any, lsData: any): FlowData {
+export function analyzeFlow(candles: Candle[], oiData: any, oiHistory: any[], fundingData: any, lsData: any): FlowData {
   const cvdValues = computeCVD(candles);
   const cvdDivergence = detectCVDDivergence(candles, cvdValues);
 
-  // OI
-  const currentOI = oiData?.value ?? oiData?.openInterest
-    ? parseFloat(oiData?.openInterest ?? '0')
-    : 0;
-  const oiChange = 0; // would need historical for real delta
+  // Current price (last close) — used to convert OI from coins to USD
+  const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : 0;
+
+  // OI: Binance returns quantity in base asset (BTC, ETH…), multiply by price for USD
+  const oiCoins = oiData?.openInterest ? parseFloat(oiData.openInterest) : 0;
+  const currentOI = oiCoins * currentPrice;
+
+  // 24h delta: compare current vs oldest snapshot in history (≈24h ago)
+  let oiChange = 0;
+  if (oiHistory.length >= 2) {
+    const oldest = parseFloat(oiHistory[0].sumOpenInterest) * currentPrice;
+    const newest = parseFloat(oiHistory[oiHistory.length - 1].sumOpenInterest) * currentPrice;
+    oiChange = oldest > 0 ? ((newest - oldest) / oldest) * 100 : 0;
+  }
+
   const priceDelta = candles.length > 1 ? candles[candles.length - 1].close - candles[candles.length - 2].close : 0;
   const oiInterpretation = interpretOpenInterest(priceDelta, oiChange);
 
@@ -75,7 +85,7 @@ export function analyzeFlow(candles: Candle[], oiData: any, fundingData: any, ls
   const lsInterpretation = interpretLongShort(lsRatio);
 
   return {
-    openInterest: { current: currentOI, change24h: oiChange, interpretation: oiInterpretation },
+    openInterest: { current: currentOI, change24h: parseFloat(oiChange.toFixed(2)), interpretation: oiInterpretation },
     funding: { current: fundingRate, status: fundingInfo.status, meaning: fundingInfo.meaning },
     longShort: { ratio: lsRatio, interpretation: lsInterpretation },
     cvd: { values: cvdValues.slice(-50), divergence: cvdDivergence },

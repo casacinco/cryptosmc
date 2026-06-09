@@ -29,8 +29,15 @@ export function MetricsPanel({ flow }: Props) {
     <div className="grid grid-cols-2 gap-3">
       <MetricCard
         title="Open Interest"
-        value={flow.openInterest.current > 0 ? `$${(flow.openInterest.current / 1e6).toFixed(0)}M` : '—'}
-        sub={flow.openInterest.interpretation}
+        value={flow.openInterest.current > 0
+          ? flow.openInterest.current >= 1e9
+            ? `$${(flow.openInterest.current / 1e9).toFixed(2)}B`
+            : `$${(flow.openInterest.current / 1e6).toFixed(0)}M`
+          : '—'}
+        sub={flow.openInterest.change24h !== 0
+          ? `${flow.openInterest.change24h > 0 ? '+' : ''}${flow.openInterest.change24h.toFixed(2)}% 24h · ${flow.openInterest.interpretation}`
+          : flow.openInterest.interpretation}
+        color={flow.openInterest.change24h > 1 ? '#00d084' : flow.openInterest.change24h < -1 ? '#ff4757' : undefined}
       />
       <MetricCard
         title="Funding Rate"

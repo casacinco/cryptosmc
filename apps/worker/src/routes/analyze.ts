@@ -1,6 +1,6 @@
 import type { Context } from 'hono';
 import type { Env, TradeReport } from '../types';
-import { fetchCandles, fetchOpenInterest, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
+import { fetchCandles, fetchOpenInterest, fetchOpenInterestHistory, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
 import { fetchLiquidationHeatmap } from '../providers/coinglass'; // now uses Binance free endpoint
 import { analyzeStructure } from '../engines/smc';
 import { analyzeFlow } from '../engines/flow';
@@ -16,11 +16,12 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
   if (cached) return c.json(cached);
 
   try {
-    const [candles1D, candles4H, candles1H, oiRaw, fundingRaw, lsRaw, heatmap] = await Promise.all([
+    const [candles1D, candles4H, candles1H, oiRaw, oiHistory, fundingRaw, lsRaw, heatmap] = await Promise.all([
       fetchCandles(symbol, '1d', 100),
       fetchCandles(symbol, '4h', 100),
       fetchCandles(symbol, '1h', 100),
       fetchOpenInterest(symbol),
+      fetchOpenInterestHistory(symbol),
       fetchFundingRate(symbol, 1),
       fetchLongShortRatio(symbol, '5m', 1),
       fetchLiquidationHeatmap(symbol),
@@ -32,7 +33,7 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
 
     const fundingData = fundingRaw[0] || null;
     const lsData = lsRaw[0] || null;
-    const flow = analyzeFlow(candles4H, oiRaw, fundingData, lsData);
+    const flow = analyzeFlow(candles4H, oiRaw, oiHistory, fundingData, lsData);
     const score = computeScores(structure4H, flow, heatmap);
     const { primary, alternative } = generateScenarios(structure4H, flow, score);
     const { long_zones, short_zones, invalidation_level } = generateZones(structure4H, flow);
