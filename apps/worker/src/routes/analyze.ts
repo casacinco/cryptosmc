@@ -1,7 +1,7 @@
 import type { Context } from 'hono';
 import type { Env, TradeReport } from '../types';
 import { fetchCandles, fetchOpenInterest, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
-import { fetchLiquidationHeatmap } from '../providers/coinglass';
+import { fetchLiquidationHeatmap } from '../providers/coinglass'; // now uses Binance free endpoint
 import { analyzeStructure } from '../engines/smc';
 import { analyzeFlow } from '../engines/flow';
 import { computeScores } from '../engines/scoring';
@@ -23,7 +23,7 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
       fetchOpenInterest(symbol),
       fetchFundingRate(symbol, 1),
       fetchLongShortRatio(symbol, '5m', 1),
-      fetchLiquidationHeatmap(symbol.replace('USDT', ''), c.env.COINGLASS_API_KEY),
+      fetchLiquidationHeatmap(symbol),
     ]);
 
     const structure1D = analyzeStructure(symbol, '1D', candles1D);

@@ -80,5 +80,5 @@ export interface TradeReport {
 export interface Env {
   DB: D1Database;
   COINALYZE_API_KEY: string;
-  COINGLASS_API_KEY: string;
+  // CoinGlass removed — liquidations via Binance /fapi/v1/allForceOrders (free, no key)
 }

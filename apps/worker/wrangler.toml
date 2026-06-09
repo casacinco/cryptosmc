@@ -9,5 +9,5 @@ database_name = "cryptosmc-cache"
 database_id = "placeholder-replace-after-create"
 
 [vars]
-COINALYZE_API_KEY = ""
-COINGLASS_API_KEY = ""
+COINALYZE_API_KEY = "35097e7b-35c3-4f18-9a59-e40d500b6d06"
+# CoinGlass removed — using Binance /fapi/v1/allForceOrders (free, no key needed)
