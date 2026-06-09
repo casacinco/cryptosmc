@@ -1,0 +1,13 @@
+name = "cryptosmc-worker"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "cryptosmc-cache"
+database_id = "placeholder-replace-after-create"
+
+[vars]
+COINALYZE_API_KEY = ""
+COINGLASS_API_KEY = ""

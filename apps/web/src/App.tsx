@@ -1,0 +1,130 @@
+import { useState } from 'react';
+import { Header } from './components/Header';
+import { SymbolSelector } from './components/SymbolSelector';
+import { TimeframeSelector } from './components/TimeframeSelector';
+import { CandleChart } from './components/CandleChart';
+import { MetricsPanel } from './components/MetricsPanel';
+import { ScorePanel } from './components/ScorePanel';
+import { TradeReportPanel } from './components/TradeReport';
+import { LoadingSpinner } from './components/LoadingSpinner';
+import { useAnalysis } from './hooks/useAnalysis';
+import { useMarketData } from './hooks/useMarketData';
+
+export default function App() {
+  const [symbol, setSymbol] = useState('BTCUSDT');
+  const [timeframe, setTimeframe] = useState('4h');
+
+  const { data: analysis, loading: analysisLoading, error, refetch } = useAnalysis(symbol);
+  const { candles, loading: candlesLoading } = useMarketData(symbol, timeframe);
+
+  const structure = analysis?.structure?.['4H'] ?? analysis?.structure?.['1H'] ?? null;
+
+  return (
+    <div className="min-h-screen bg-bg-primary flex flex-col">
+      <Header lastUpdate={analysis ? new Date(analysis.timestamp) : null} />
+
+      {/* Controls */}
+      <div className="flex items-center gap-4 px-6 py-3 border-b border-bg-border bg-bg-secondary">
+        <SymbolSelector value={symbol} onChange={setSymbol} />
+        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+        <button
+          onClick={refetch}
+          disabled={analysisLoading}
+          className="ml-auto px-4 py-1.5 rounded-lg bg-bg-card border border-bg-border text-text-secondary text-xs hover:text-text-primary hover:border-accent-blue transition-colors disabled:opacity-50"
+        >
+          {analysisLoading ? 'Analyzing...' : 'Refresh'}
+        </button>
+      </div>
+
+      {error && (
+        <div className="mx-6 mt-4 p-3 bg-accent-red bg-opacity-10 border border-accent-red border-opacity-30 rounded-lg text-accent-red text-sm">
+          Error: {error}
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col gap-4 p-6 overflow-auto">
+        {/* Main grid */}
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
+          {/* Chart */}
+          <div className="bg-bg-card border border-bg-border rounded-xl overflow-hidden" style={{ height: '480px' }}>
+            {candlesLoading && candles.length === 0 ? (
+              <LoadingSpinner />
+            ) : (
+              <CandleChart
+                candles={candles}
+                orderBlocks={structure?.orderBlocks ?? []}
+                fvgs={structure?.fvgs ?? []}
+                liquidityPools={structure?.liquidityPools ?? []}
+              />
+            )}
+          </div>
+
+          {/* Right panel */}
+          <div className="flex flex-col gap-4">
+            {analysisLoading && !analysis ? (
+              <div className="h-full flex items-center justify-center">
+                <LoadingSpinner />
+              </div>
+            ) : analysis ? (
+              <>
+                <ScorePanel score={analysis.score} />
+                <MetricsPanel flow={analysis.flow} />
+              </>
+            ) : null}
+          </div>
+        </div>
+
+        {/* Trade Report */}
+        {analysis && !analysisLoading && (
+          <TradeReportPanel report={analysis} />
+        )}
+
+        {/* Structure table */}
+        {analysis && (
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {(['1D', '4H', '1H'] as const).map(tf => {
+              const s = analysis.structure[tf];
+              if (!s) return null;
+              return (
+                <div key={tf} className="bg-bg-card border border-bg-border rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <span className="text-text-secondary text-xs font-semibold">{tf} Structure</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      s.trend === 'bullish' ? 'bg-accent-green bg-opacity-20 text-accent-green' :
+                      s.trend === 'bearish' ? 'bg-accent-red bg-opacity-20 text-accent-red' :
+                      'bg-bg-border text-text-muted'
+                    }`}>
+                      {s.trend.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5 text-xs">
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">BOS events</span>
+                      <span className="text-text-primary">{s.bos.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">CHoCH events</span>
+                      <span className="text-text-primary">{s.choch.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Order Blocks</span>
+                      <span className="text-text-primary">{s.orderBlocks.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">FVGs</span>
+                      <span className="text-text-primary">{s.fvgs.length}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-text-muted">Liquidity Pools</span>
+                      <span className="text-text-primary">{s.liquidityPools.length}</span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
