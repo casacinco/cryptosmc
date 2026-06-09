@@ -9,12 +9,14 @@ export function interpretOpenInterest(priceDelta: number, oiDelta: number): stri
 }
 
 export function interpretFunding(rate: number): { status: string; meaning: string } {
-  if (rate > 0.05) return { status: 'Extremely High', meaning: 'Longs paying heavily — long squeeze risk elevated' };
-  if (rate > 0.03) return { status: 'Very High', meaning: 'Market overextended to upside — caution for longs' };
-  if (rate > 0.01) return { status: 'Positive', meaning: 'Slight long bias — healthy market' };
-  if (rate > -0.01) return { status: 'Neutral', meaning: 'Balanced market — no directional bias' };
-  if (rate > -0.03) return { status: 'Negative', meaning: 'Short bias — shorts paying premium' };
-  return { status: 'Extremely Negative', meaning: 'Shorts paying heavily — short squeeze risk elevated' };
+  // Binance funding is a decimal: 0.0001 = 0.01% per 8h (typical neutral)
+  // High positive: > 0.05% = 0.0005 | Extreme: > 0.1% = 0.001
+  if (rate > 0.001)  return { status: 'Extremely High',     meaning: 'Longs paying heavily — long squeeze risk elevated' };
+  if (rate > 0.0005) return { status: 'Very High',          meaning: 'Market overextended to upside — caution for longs' };
+  if (rate > 0.0001) return { status: 'Positive',           meaning: 'Slight long bias — healthy market' };
+  if (rate > -0.0001) return { status: 'Neutral',           meaning: 'Balanced market — no directional bias' };
+  if (rate > -0.0005) return { status: 'Negative',          meaning: 'Short bias — shorts paying premium' };
+  return               { status: 'Extremely Negative',      meaning: 'Shorts paying heavily — short squeeze risk elevated' };
 }
 
 export function interpretLongShort(ratio: number): string {

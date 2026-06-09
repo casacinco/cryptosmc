@@ -24,25 +24,38 @@ export function computeScores(structure: MarketStructure, flow: FlowData, heatma
   bearishRaw += liqBearish;
   details['liquidity'] = liqBullish - liqBearish;
 
-  // Funding (10%)
+  // Funding (10%) — Binance decimal: 0.0001 = 0.01%/8h typical
   const fundingRate = flow.funding.current;
-  if (fundingRate > 0.03) { bearishRaw += 10; details['funding'] = -10; }
-  else if (fundingRate > 0.01) { bearishRaw += 5; details['funding'] = -5; }
-  else if (fundingRate < -0.03) { bullishRaw += 10; details['funding'] = 10; }
-  else if (fundingRate < -0.01) { bullishRaw += 5; details['funding'] = 5; }
-  else details['funding'] = 0;
+  if (fundingRate > 0.001)       { bearishRaw += 10; details['funding'] = -10; } // >0.1% extreme long
+  else if (fundingRate > 0.0005) { bearishRaw += 7;  details['funding'] = -7;  } // >0.05% very high
+  else if (fundingRate > 0.0001) { bearishRaw += 4;  details['funding'] = -4;  } // >0.01% positive
+  else if (fundingRate < -0.001) { bullishRaw += 10; details['funding'] = 10;  } // <-0.1% extreme short
+  else if (fundingRate < -0.0005){ bullishRaw += 7;  details['funding'] = 7;   } // <-0.05% very negative
+  else if (fundingRate < -0.0001){ bullishRaw += 4;  details['funding'] = 4;   } // <-0.01% negative
+  else                            {                   details['funding'] = 0;   } // neutral band
 
   // L/S Ratio (10%)
   const lsRatio = flow.longShort.ratio;
-  if (lsRatio > 1.5) { bearishRaw += 10; details['longShort'] = -10; }
-  else if (lsRatio < 0.7) { bullishRaw += 10; details['longShort'] = 10; }
-  else details['longShort'] = 0;
+  if (lsRatio > 1.5)      { bearishRaw += 10; details['longShort'] = -10; }
+  else if (lsRatio > 1.2) { bearishRaw += 5;  details['longShort'] = -5;  }
+  else if (lsRatio < 0.7) { bullishRaw += 10; details['longShort'] = 10;  }
+  else if (lsRatio < 0.85){ bullishRaw += 5;  details['longShort'] = 5;   }
+  else                     {                   details['longShort'] = 0;   }
 
-  // CVD (10%)
+  // CVD (10%) — divergence = strong signal; no divergence = use trend alignment as weaker signal
   const cvdDiv = flow.cvd.divergence;
-  if (cvdDiv === 'bullish') { bullishRaw += 10; details['cvd'] = 10; }
+  const cvdValues = flow.cvd.values;
+  if (cvdDiv === 'bullish')      { bullishRaw += 10; details['cvd'] = 10;  }
   else if (cvdDiv === 'bearish') { bearishRaw += 10; details['cvd'] = -10; }
-  else details['cvd'] = 0;
+  else if (cvdValues.length >= 2) {
+    // No divergence: check if CVD trend aligns with price trend (weaker signal, ±5)
+    const cvdTrend = cvdValues[cvdValues.length - 1] - cvdValues[0];
+    if (cvdTrend > 0 && structure.trend === 'bullish')      { bullishRaw += 5; details['cvd'] = 5;  }
+    else if (cvdTrend < 0 && structure.trend === 'bearish') { bearishRaw += 5; details['cvd'] = -5; }
+    else if (cvdTrend > 0 && structure.trend === 'bearish') { bullishRaw += 3; details['cvd'] = 3;  } // hidden bull div
+    else if (cvdTrend < 0 && structure.trend === 'bullish') { bearishRaw += 3; details['cvd'] = -3; } // hidden bear div
+    else details['cvd'] = 0;
+  } else details['cvd'] = 0;
 
   // OI interpretation (15%)
   const oiInterp = flow.openInterest.interpretation;
