@@ -1,7 +1,8 @@
 import type { Context } from 'hono';
 import type { Env, TradeReport, AuditData, DataSourceStatus, TradeZoneAudit, MTFRow } from '../types';
 import { fetchCandles, fetchOpenInterest, fetchOpenInterestHistory, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
-import { fetchLiquidationHeatmap } from '../providers/coinglass'; // now uses Binance free endpoint
+import { fetchLiquidationHeatmap } from '../providers/coinglass';
+import { fetchOI as coinalyzeOI, fetchFunding as coinalyzeFunding, fetchLongShortHistory as coinalyzeLS, toCoinalyzeSymbol } from '../providers/coinalyze';
 import { analyzeStructure, enrichBOS, enrichCHoCH, enrichOrderBlocks, enrichFVGs, enrichLiquidityPools } from '../engines/smc';
 import { analyzeFlow } from '../engines/flow';
 import { computeScores, buildScoreBreakdown, buildConfidenceBreakdown } from '../engines/scoring';
@@ -16,7 +17,10 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
   if (cached) return c.json(cached);
 
   try {
-    const [candles1D, candles4H, candles1H, oiRaw, oiHistory, fundingRaw, lsRaw, heatmap] = await Promise.all([
+    const clzSymbol = toCoinalyzeSymbol(symbol);
+    const apiKey = c.env.COINALYZE_API_KEY;
+
+    const [candles1D, candles4H, candles1H, oiRaw, oiHistory, fundingRaw, lsRaw, heatmap, clzOIData, clzFundingData, clzLSData] = await Promise.all([
       fetchCandles(symbol, '1d', 100),
       fetchCandles(symbol, '4h', 100),
       fetchCandles(symbol, '1h', 100),
@@ -25,15 +29,29 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
       fetchFundingRate(symbol, 1),
       fetchLongShortRatio(symbol, '5m', 1),
       fetchLiquidationHeatmap(symbol),
+      coinalyzeOI([clzSymbol], apiKey),
+      coinalyzeFunding([clzSymbol], apiKey),
+      coinalyzeLS(clzSymbol, '1hour', apiKey),
     ]);
 
     const structure1D = analyzeStructure(symbol, '1D', candles1D);
     const structure4H = analyzeStructure(symbol, '4H', candles4H);
     const structure1H = analyzeStructure(symbol, '1H', candles1H);
 
-    const fundingData = fundingRaw[0] || null;
-    const lsData = lsRaw[0] || null;
-    const flow = analyzeFlow(candles4H, oiRaw, oiHistory, fundingData, lsData);
+    const clzOI = clzOIData[0] ?? null;
+    const clzFunding = clzFundingData[0] ?? null;
+    const clzLS = clzLSData.length > 0 ? clzLSData[clzLSData.length - 1] : null;
+    const coinalyzeConnected = clzOI !== null || clzFunding !== null;
+
+    const flow = analyzeFlow(candles4H, {
+      binanceOI: oiRaw,
+      binanceOIHistory: oiHistory,
+      binanceFunding: fundingRaw[0] || null,
+      binanceLS: lsRaw[0] || null,
+      coinalyzeOI: clzOI,
+      coinalyzeFunding: clzFunding,
+      coinalyzeLS: clzLS,
+    });
     const score = computeScores(structure4H, flow, heatmap);
     const { primary, alternative } = generateScenarios(structure4H, flow, score);
     const { long_zones, short_zones, invalidation_level } = generateZones(structure4H, flow);
@@ -90,20 +108,23 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
         connected: candles4H.length > 0,
         lastUpdate: Date.now(),
         endpoint: 'fapi.binance.com',
+        note: 'Candles, OI history, liquidations (fallback for OI/funding/L/S)',
       },
       {
         name: 'Coinalyze',
-        connected: false,
-        lastUpdate: 0,
+        connected: coinalyzeConnected,
+        lastUpdate: clzOI?.update ? clzOI.update * 1000 : (clzFunding?.update ? clzFunding.update * 1000 : 0),
         endpoint: 'api.coinalyze.net',
-        note: 'API key present but provider unused — data from Binance',
+        note: coinalyzeConnected
+          ? `Binance data via Coinalyze (free tier — .3 suffix). Upgrade for multi-exchange aggregation.`
+          : `Symbol ${clzSymbol} not found — free tier may not support this pair`,
       },
       {
         name: 'CoinGlass',
         connected: false,
         lastUpdate: 0,
         endpoint: 'open-api-v4.coinglass.com',
-        note: 'Free tier unavailable — liquidations from Binance',
+        note: 'Free tier unavailable — liquidation heatmap from Binance /allForceOrders',
       },
     ];
 

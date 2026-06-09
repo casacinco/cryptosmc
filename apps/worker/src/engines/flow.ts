@@ -56,34 +56,65 @@ export function detectCVDDivergence(candles: Candle[], cvd: number[]): 'bullish'
   return 'none';
 }
 
-export function analyzeFlow(candles: Candle[], oiData: any, oiHistory: any[], fundingData: any, lsData: any): FlowData {
+export interface FlowSources {
+  // Binance (single-exchange, always available)
+  binanceOI: any;
+  binanceOIHistory: any[];
+  binanceFunding: any;
+  binanceLS: any;
+  // Coinalyze (multi-exchange aggregated, preferred when available)
+  coinalyzeOI?: { value: number; update: number } | null;
+  coinalyzeFunding?: { value: number; update: number } | null;
+  coinalyzeLS?: { longRatio: number; shortRatio: number } | null;
+}
+
+export function analyzeFlow(candles: Candle[], sources: FlowSources): FlowData {
   const cvdValues = computeCVD(candles);
   const cvdDivergence = detectCVDDivergence(candles, cvdValues);
-
-  // Current price (last close) — used to convert OI from coins to USD
   const currentPrice = candles.length > 0 ? candles[candles.length - 1].close : 0;
 
-  // OI: Binance returns quantity in base asset (BTC, ETH…), multiply by price for USD
-  const oiCoins = oiData?.openInterest ? parseFloat(oiData.openInterest) : 0;
-  const currentOI = oiCoins * currentPrice;
-
-  // 24h delta: compare current vs oldest snapshot in history (≈24h ago)
+  // ── Open Interest ────────────────────────────────────────────────────────────
+  // Prefer Coinalyze (USD, multi-exchange) over Binance (coins, single-exchange)
+  let currentOI = 0;
   let oiChange = 0;
-  if (oiHistory.length >= 2) {
-    const oldest = parseFloat(oiHistory[0].sumOpenInterest) * currentPrice;
-    const newest = parseFloat(oiHistory[oiHistory.length - 1].sumOpenInterest) * currentPrice;
+
+  if (sources.coinalyzeOI && sources.coinalyzeOI.value > 0) {
+    // Coinalyze OI is in base asset (BTC/ETH…), same as Binance — convert to USD
+    currentOI = sources.coinalyzeOI.value * currentPrice;
+  } else {
+    // Binance: convert coins → USD
+    const oiCoins = sources.binanceOI?.openInterest ? parseFloat(sources.binanceOI.openInterest) : 0;
+    currentOI = oiCoins * currentPrice;
+  }
+
+  if (sources.binanceOIHistory.length >= 2) {
+    const oldest = parseFloat(sources.binanceOIHistory[0].sumOpenInterest) * currentPrice;
+    const newest = parseFloat(sources.binanceOIHistory[sources.binanceOIHistory.length - 1].sumOpenInterest) * currentPrice;
     oiChange = oldest > 0 ? ((newest - oldest) / oldest) * 100 : 0;
   }
 
   const priceDelta = candles.length > 1 ? candles[candles.length - 1].close - candles[candles.length - 2].close : 0;
   const oiInterpretation = interpretOpenInterest(priceDelta, oiChange);
 
-  // Funding
-  const fundingRate = fundingData ? parseFloat(fundingData.fundingRate ?? '0') : 0;
+  // ── Funding Rate ─────────────────────────────────────────────────────────────
+  // Prefer Coinalyze (aggregated avg across all exchanges)
+  let fundingRate = 0;
+  if (sources.coinalyzeFunding && sources.coinalyzeFunding.value !== 0) {
+    fundingRate = sources.coinalyzeFunding.value;
+  } else {
+    fundingRate = sources.binanceFunding ? parseFloat(sources.binanceFunding.fundingRate ?? '0') : 0;
+  }
   const fundingInfo = interpretFunding(fundingRate);
 
-  // L/S
-  const lsRatio = lsData ? parseFloat(lsData.longShortRatio ?? '1') : 1;
+  // ── Long/Short Ratio ─────────────────────────────────────────────────────────
+  // Prefer Coinalyze (multi-exchange)
+  let lsRatio = 1;
+  if (sources.coinalyzeLS && sources.coinalyzeLS.longRatio > 0) {
+    const total = sources.coinalyzeLS.longRatio + sources.coinalyzeLS.shortRatio;
+    lsRatio = total > 0 ? sources.coinalyzeLS.longRatio / sources.coinalyzeLS.shortRatio : 1;
+  } else {
+    lsRatio = sources.binanceLS ? parseFloat(sources.binanceLS.longShortRatio ?? '1') : 1;
+  }
   const lsInterpretation = interpretLongShort(lsRatio);
 
   return {
