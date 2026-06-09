@@ -16,10 +16,12 @@ function MetricCard({ title, value, sub, color }: { title: string; value: string
 
 export function MetricsPanel({ flow }: Props) {
   const fundingColor =
-    flow.funding.current > 0.03 ? '#ff4757' :
-    flow.funding.current > 0.01 ? '#ffd700' :
-    flow.funding.current < -0.03 ? '#00d084' :
-    flow.funding.current < -0.01 ? '#4a9eff' : '#8888aa';
+    flow.funding.current >= 0.001  ? '#ff4757' :
+    flow.funding.current >= 0.0005 ? '#ffd700' :
+    flow.funding.current >= 0.0001 ? '#ffaa33' :
+    flow.funding.current <= -0.001  ? '#00d084' :
+    flow.funding.current <= -0.0005 ? '#4a9eff' :
+    flow.funding.current <= -0.0001 ? '#7ab8ff' : '#8888aa';
 
   const lsColor = flow.longShort.ratio > 1.5 ? '#ff4757' : flow.longShort.ratio < 0.7 ? '#00d084' : '#8888aa';
 

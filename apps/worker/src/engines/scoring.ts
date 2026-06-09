@@ -6,9 +6,6 @@ export function computeScores(structure: MarketStructure, flow: FlowData, heatma
   const details: Record<string, number> = {};
 
   // Market Structure (20%)
-  const bosScore = structure.bos.length > 0
-    ? (structure.bos.filter(b => b.type === 'bullish').length / structure.bos.length) * 20
-    : 10;
   const structureBullish = structure.trend === 'bullish' ? 20 : structure.trend === 'ranging' ? 10 : 0;
   const structureBearish = structure.trend === 'bearish' ? 20 : structure.trend === 'ranging' ? 10 : 0;
   bullishRaw += structureBullish;
@@ -26,13 +23,14 @@ export function computeScores(structure: MarketStructure, flow: FlowData, heatma
 
   // Funding (10%) — Binance decimal: 0.0001 = 0.01%/8h typical
   const fundingRate = flow.funding.current;
-  if (fundingRate > 0.001)       { bearishRaw += 10; details['funding'] = -10; } // >0.1% extreme long
-  else if (fundingRate > 0.0005) { bearishRaw += 7;  details['funding'] = -7;  } // >0.05% very high
-  else if (fundingRate > 0.0001) { bearishRaw += 4;  details['funding'] = -4;  } // >0.01% positive
-  else if (fundingRate < -0.001) { bullishRaw += 10; details['funding'] = 10;  } // <-0.1% extreme short
-  else if (fundingRate < -0.0005){ bullishRaw += 7;  details['funding'] = 7;   } // <-0.05% very negative
-  else if (fundingRate < -0.0001){ bullishRaw += 4;  details['funding'] = 4;   } // <-0.01% negative
-  else                            {                   details['funding'] = 0;   } // neutral band
+  // >= catches the Binance standard rate (0.0001 = 0.01%) which IS a positive funding signal
+  if      (fundingRate >= 0.001)   { bearishRaw += 10; details['funding'] = -10; } // ≥0.1%  extreme long
+  else if (fundingRate >= 0.0005)  { bearishRaw += 7;  details['funding'] = -7;  } // ≥0.05% very high
+  else if (fundingRate >= 0.0001)  { bearishRaw += 4;  details['funding'] = -4;  } // ≥0.01% positive (standard rate)
+  else if (fundingRate <= -0.001)  { bullishRaw += 10; details['funding'] = 10;  } // ≤-0.1% extreme short
+  else if (fundingRate <= -0.0005) { bullishRaw += 7;  details['funding'] = 7;   } // ≤-0.05% very negative
+  else if (fundingRate <= -0.0001) { bullishRaw += 4;  details['funding'] = 4;   } // ≤-0.01% negative
+  else                             {                   details['funding'] = 0;   } // truly neutral (near zero)
 
   // L/S Ratio (10%)
   const lsRatio = flow.longShort.ratio;

@@ -5,7 +5,7 @@ import { fetchLiquidationHeatmap } from '../providers/coinglass'; // now uses Bi
 import { analyzeStructure } from '../engines/smc';
 import { analyzeFlow } from '../engines/flow';
 import { computeScores } from '../engines/scoring';
-import { computeConfluence, generateZones, generateScenarios } from '../engines/confluence';
+import { generateZones, generateScenarios } from '../engines/confluence';
 import { getCache, setCache } from '../db/cache';
 
 export async function handleAnalyze(c: Context<{ Bindings: Env }>) {

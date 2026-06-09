@@ -15,8 +15,8 @@ export function computeConfluence(structure: MarketStructure, flow: FlowData, sc
   longScore += bullFVGs.length * 15;
   shortScore += bearFVGs.length * 15;
 
-  if (flow.funding.current > 0.03) { shortScore += 10; details['fundingExtreme'] = 'bearish'; }
-  if (flow.funding.current < -0.03) { longScore += 10; details['fundingExtreme'] = 'bullish'; }
+  if (flow.funding.current > 0.001)  { shortScore += 10; details['fundingExtreme'] = 'bearish'; }
+  if (flow.funding.current < -0.001) { longScore += 10;  details['fundingExtreme'] = 'bullish'; }
 
   if (flow.longShort.ratio > 1.5) { shortScore += 10; details['lsImbalance'] = 'heavy longs'; }
   if (flow.longShort.ratio < 0.7) { longScore += 10; details['lsImbalance'] = 'heavy shorts'; }
