@@ -7,17 +7,28 @@ import { MetricsPanel } from './components/MetricsPanel';
 import { ScorePanel } from './components/ScorePanel';
 import { TradeReportPanel } from './components/TradeReport';
 import { LoadingSpinner } from './components/LoadingSpinner';
+import { AuditPage } from './components/AuditPage';
+import { DeveloperMode } from './components/DeveloperMode';
 import { useAnalysis } from './hooks/useAnalysis';
 import { useMarketData } from './hooks/useMarketData';
+
+type Tab = 'dashboard' | 'audit' | 'developer';
 
 export default function App() {
   const [symbol, setSymbol] = useState('BTCUSDT');
   const [timeframe, setTimeframe] = useState('4h');
+  const [activeTab, setActiveTab] = useState<Tab>('dashboard');
 
   const { data: analysis, loading: analysisLoading, error, refetch } = useAnalysis(symbol);
   const { candles, loading: candlesLoading } = useMarketData(symbol, timeframe);
 
   const structure = analysis?.structure?.['4H'] ?? analysis?.structure?.['1H'] ?? null;
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'audit', label: 'Audit' },
+    { id: 'developer', label: 'Developer' },
+  ];
 
   return (
     <div className="min-h-screen bg-bg-primary flex flex-col">
@@ -36,95 +47,152 @@ export default function App() {
         </button>
       </div>
 
+      {/* Tab Bar */}
+      <div className="flex items-center gap-1 px-6 bg-bg-secondary border-b border-bg-border">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-2.5 text-xs font-semibold transition-colors relative ${
+              activeTab === tab.id
+                ? 'text-text-primary border-b-2 border-accent-blue'
+                : 'text-text-muted hover:text-text-secondary border-b-2 border-transparent'
+            }`}
+          >
+            {tab.label}
+            {tab.id === 'audit' && analysis?.audit && (
+              <span className="ml-1.5 inline-flex items-center justify-center w-4 h-4 rounded-full bg-accent-blue bg-opacity-20 text-accent-blue text-xs leading-none">
+                ✓
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
       {error && (
         <div className="mx-6 mt-4 p-3 bg-accent-red bg-opacity-10 border border-accent-red border-opacity-30 rounded-lg text-accent-red text-sm">
           Error: {error}
         </div>
       )}
 
-      <div className="flex-1 flex flex-col gap-4 p-6 overflow-auto">
-        {/* Main grid */}
-        <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
-          {/* Chart */}
-          <div className="bg-bg-card border border-bg-border rounded-xl overflow-hidden" style={{ height: '480px' }}>
-            {candlesLoading && candles.length === 0 ? (
-              <LoadingSpinner />
-            ) : (
-              <CandleChart
-                candles={candles}
-                orderBlocks={structure?.orderBlocks ?? []}
-                fvgs={structure?.fvgs ?? []}
-                liquidityPools={structure?.liquidityPools ?? []}
-              />
-            )}
-          </div>
-
-          {/* Right panel */}
-          <div className="flex flex-col gap-4">
-            {analysisLoading && !analysis ? (
-              <div className="h-full flex items-center justify-center">
+      {/* Tab Content */}
+      {activeTab === 'dashboard' && (
+        <div className="flex-1 flex flex-col gap-4 p-6 overflow-auto">
+          {/* Main grid */}
+          <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-4">
+            {/* Chart */}
+            <div className="bg-bg-card border border-bg-border rounded-xl overflow-hidden" style={{ height: '480px' }}>
+              {candlesLoading && candles.length === 0 ? (
                 <LoadingSpinner />
-              </div>
-            ) : analysis ? (
-              <>
-                <ScorePanel score={analysis.score} />
-                <MetricsPanel flow={analysis.flow} />
-              </>
-            ) : null}
-          </div>
-        </div>
+              ) : (
+                <CandleChart
+                  candles={candles}
+                  orderBlocks={structure?.orderBlocks ?? []}
+                  fvgs={structure?.fvgs ?? []}
+                  liquidityPools={structure?.liquidityPools ?? []}
+                />
+              )}
+            </div>
 
-        {/* Trade Report */}
-        {analysis && !analysisLoading && (
-          <TradeReportPanel report={analysis} />
-        )}
-
-        {/* Structure table */}
-        {analysis && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {(['1D', '4H', '1H'] as const).map(tf => {
-              const s = analysis.structure[tf];
-              if (!s) return null;
-              return (
-                <div key={tf} className="bg-bg-card border border-bg-border rounded-xl p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <span className="text-text-secondary text-xs font-semibold">{tf} Structure</span>
-                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
-                      s.trend === 'bullish' ? 'bg-accent-green bg-opacity-20 text-accent-green' :
-                      s.trend === 'bearish' ? 'bg-accent-red bg-opacity-20 text-accent-red' :
-                      'bg-bg-border text-text-muted'
-                    }`}>
-                      {s.trend.toUpperCase()}
-                    </span>
-                  </div>
-                  <div className="space-y-1.5 text-xs">
-                    <div className="flex justify-between">
-                      <span className="text-text-muted">BOS events</span>
-                      <span className="text-text-primary">{s.bos.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-text-muted">CHoCH events</span>
-                      <span className="text-text-primary">{s.choch.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-text-muted">Order Blocks</span>
-                      <span className="text-text-primary">{s.orderBlocks.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-text-muted">FVGs</span>
-                      <span className="text-text-primary">{s.fvgs.length}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-text-muted">Liquidity Pools</span>
-                      <span className="text-text-primary">{s.liquidityPools.length}</span>
-                    </div>
-                  </div>
+            {/* Right panel */}
+            <div className="flex flex-col gap-4">
+              {analysisLoading && !analysis ? (
+                <div className="h-full flex items-center justify-center">
+                  <LoadingSpinner />
                 </div>
-              );
-            })}
+              ) : analysis ? (
+                <>
+                  <ScorePanel score={analysis.score} />
+                  <MetricsPanel flow={analysis.flow} />
+                </>
+              ) : null}
+            </div>
           </div>
-        )}
-      </div>
+
+          {/* Trade Report */}
+          {analysis && !analysisLoading && (
+            <TradeReportPanel report={analysis} />
+          )}
+
+          {/* Structure table */}
+          {analysis && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {(['1D', '4H', '1H'] as const).map(tf => {
+                const s = analysis.structure[tf];
+                if (!s) return null;
+                return (
+                  <div key={tf} className="bg-bg-card border border-bg-border rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <span className="text-text-secondary text-xs font-semibold">{tf} Structure</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                        s.trend === 'bullish' ? 'bg-accent-green bg-opacity-20 text-accent-green' :
+                        s.trend === 'bearish' ? 'bg-accent-red bg-opacity-20 text-accent-red' :
+                        'bg-bg-border text-text-muted'
+                      }`}>
+                        {s.trend.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="space-y-1.5 text-xs">
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">BOS events</span>
+                        <span className="text-text-primary">{s.bos.length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">CHoCH events</span>
+                        <span className="text-text-primary">{s.choch.length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">Order Blocks</span>
+                        <span className="text-text-primary">{s.orderBlocks.length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">FVGs</span>
+                        <span className="text-text-primary">{s.fvgs.length}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-text-muted">Liquidity Pools</span>
+                        <span className="text-text-primary">{s.liquidityPools.length}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'audit' && (
+        <div className="flex-1 overflow-auto">
+          {analysisLoading && !analysis ? (
+            <div className="h-64 flex items-center justify-center">
+              <LoadingSpinner />
+            </div>
+          ) : analysis ? (
+            <AuditPage report={analysis} />
+          ) : (
+            <div className="p-6 text-text-muted text-sm">
+              Run an analysis first to see audit data.
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeTab === 'developer' && (
+        <div className="flex-1 overflow-auto">
+          {analysisLoading && !analysis ? (
+            <div className="h-64 flex items-center justify-center">
+              <LoadingSpinner />
+            </div>
+          ) : analysis ? (
+            <DeveloperMode report={analysis} />
+          ) : (
+            <div className="p-6 text-text-muted text-sm">
+              Run an analysis first to see raw JSON.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

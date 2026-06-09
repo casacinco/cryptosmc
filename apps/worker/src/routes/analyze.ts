@@ -1,10 +1,10 @@
 import type { Context } from 'hono';
-import type { Env, TradeReport } from '../types';
+import type { Env, TradeReport, AuditData, DataSourceStatus, TradeZoneAudit, MTFRow } from '../types';
 import { fetchCandles, fetchOpenInterest, fetchOpenInterestHistory, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
 import { fetchLiquidationHeatmap } from '../providers/coinglass'; // now uses Binance free endpoint
-import { analyzeStructure } from '../engines/smc';
+import { analyzeStructure, enrichBOS, enrichCHoCH, enrichOrderBlocks, enrichFVGs, enrichLiquidityPools } from '../engines/smc';
 import { analyzeFlow } from '../engines/flow';
-import { computeScores } from '../engines/scoring';
+import { computeScores, buildScoreBreakdown, buildConfidenceBreakdown } from '../engines/scoring';
 import { generateZones, generateScenarios } from '../engines/confluence';
 import { getCache, setCache } from '../db/cache';
 
@@ -38,6 +38,151 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
     const { primary, alternative } = generateScenarios(structure4H, flow, score);
     const { long_zones, short_zones, invalidation_level } = generateZones(structure4H, flow);
 
+    // ─── Audit Data ───────────────────────────────────────────────────────────
+
+    // Build MTF rows
+    const mtfRows: MTFRow[] = [
+      {
+        timeframe: '1D',
+        trend: structure1D.trend,
+        bosCount: structure1D.bos.length,
+        chochCount: structure1D.choch.length,
+        obCount: structure1D.orderBlocks.length,
+        fvgCount: structure1D.fvgs.length,
+        liquidityCount: structure1D.liquidityPools.length,
+      },
+      {
+        timeframe: '4H',
+        trend: structure4H.trend,
+        bosCount: structure4H.bos.length,
+        chochCount: structure4H.choch.length,
+        obCount: structure4H.orderBlocks.length,
+        fvgCount: structure4H.fvgs.length,
+        liquidityCount: structure4H.liquidityPools.length,
+      },
+      {
+        timeframe: '1H',
+        trend: structure1H.trend,
+        bosCount: structure1H.bos.length,
+        chochCount: structure1H.choch.length,
+        obCount: structure1H.orderBlocks.length,
+        fvgCount: structure1H.fvgs.length,
+        liquidityCount: structure1H.liquidityPools.length,
+      },
+    ];
+
+    // Consistency check: warn if all three TFs have identical counts
+    const allSame =
+      mtfRows.every(
+        r =>
+          r.bosCount === mtfRows[0].bosCount &&
+          r.obCount === mtfRows[0].obCount &&
+          r.fvgCount === mtfRows[0].fvgCount,
+      );
+    const consistencyWarning = allSame
+      ? 'All timeframes returned identical structure counts — possible cache or calculation issue.'
+      : null;
+
+    // Data source status
+    const dataSources: DataSourceStatus[] = [
+      {
+        name: 'Binance Futures',
+        connected: candles4H.length > 0,
+        lastUpdate: Date.now(),
+        endpoint: 'fapi.binance.com',
+      },
+      {
+        name: 'Coinalyze',
+        connected: false,
+        lastUpdate: 0,
+        endpoint: 'api.coinalyze.net',
+        note: 'API key present but provider unused — data from Binance',
+      },
+      {
+        name: 'CoinGlass',
+        connected: false,
+        lastUpdate: 0,
+        endpoint: 'open-api-v4.coinglass.com',
+        note: 'Free tier unavailable — liquidations from Binance',
+      },
+    ];
+
+    // Enrich structures
+    const enrichedBOS4H = enrichBOS(candles4H, structure4H.bos, '4H');
+    const enrichedCHoCH4H = enrichCHoCH(candles4H, structure4H.choch, '4H', structure4H.trend);
+    const enrichedOBs = enrichOrderBlocks(candles4H, structure4H.orderBlocks);
+    const enrichedFVGs = enrichFVGs(candles4H, structure4H.fvgs);
+    const enrichedLiq = enrichLiquidityPools(candles4H, structure4H.liquidityPools);
+
+    // Trade zone audit with confluence reasons
+    const tradeZoneAudit: TradeZoneAudit[] = [
+      ...long_zones.map(z => {
+        const matchingOB = structure4H.orderBlocks.find(
+          ob => ob.type === 'bull' && ob.low <= z.to && ob.high >= z.from,
+        );
+        const matchingFVG = structure4H.fvgs.find(
+          f => f.type === 'bull' && f.start <= z.to && f.end >= z.from,
+        );
+        const matchingSSL = structure4H.liquidityPools.find(
+          p => p.type === 'SSL' && Math.abs(p.price - z.from) / z.from < 0.02,
+        );
+        const confluences: string[] = [];
+        if (matchingOB) confluences.push(`Bullish OB (${matchingOB.low.toFixed(0)}–${matchingOB.high.toFixed(0)})`);
+        if (matchingFVG) confluences.push(`Unfilled FVG (${matchingFVG.start.toFixed(0)}–${matchingFVG.end.toFixed(0)})`);
+        if (matchingSSL) confluences.push(`SSL nearby (${matchingSSL.price.toFixed(0)})`);
+        if (flow.funding.current > 0.0005) confluences.push('High funding favors long reversal');
+        return {
+          type: 'long' as const,
+          from: z.from,
+          to: z.to,
+          score: Math.min(100, confluences.length * 25 + 25),
+          confluences,
+          reasons: [z.reason],
+        };
+      }),
+      ...short_zones.map(z => {
+        const matchingOB = structure4H.orderBlocks.find(
+          ob => ob.type === 'bear' && ob.low <= z.to && ob.high >= z.from,
+        );
+        const matchingFVG = structure4H.fvgs.find(
+          f => f.type === 'bear' && f.start <= z.to && f.end >= z.from,
+        );
+        const matchingBSL = structure4H.liquidityPools.find(
+          p => p.type === 'BSL' && Math.abs(p.price - z.to) / z.to < 0.02,
+        );
+        const confluences: string[] = [];
+        if (matchingOB) confluences.push(`Bearish OB (${matchingOB.low.toFixed(0)}–${matchingOB.high.toFixed(0)})`);
+        if (matchingFVG) confluences.push(`Unfilled FVG (${matchingFVG.start.toFixed(0)}–${matchingFVG.end.toFixed(0)})`);
+        if (matchingBSL) confluences.push(`BSL nearby (${matchingBSL.price.toFixed(0)})`);
+        if (flow.funding.current > 0.0001) confluences.push('Positive funding adds sell pressure');
+        return {
+          type: 'short' as const,
+          from: z.from,
+          to: z.to,
+          score: Math.min(100, confluences.length * 25 + 25),
+          confluences,
+          reasons: [z.reason],
+        };
+      }),
+    ];
+
+    const scoreBreakdown = buildScoreBreakdown(structure4H, flow);
+    const confidenceBreakdown = buildConfidenceBreakdown(structure4H, flow, score, mtfRows);
+
+    const auditData: AuditData = {
+      bosEvents: enrichedBOS4H,
+      chochEvents: enrichedCHoCH4H,
+      orderBlocks: enrichedOBs,
+      fvgs: enrichedFVGs,
+      liquidityPools: enrichedLiq,
+      scoreBreakdown,
+      confidenceBreakdown,
+      dataSources,
+      tradeZoneAudit,
+      mtfComparison: mtfRows,
+      consistencyWarning,
+    };
+
     const report: TradeReport = {
       symbol,
       timestamp: Date.now(),
@@ -52,6 +197,7 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
       structure: { '1D': structure1D, '4H': structure4H, '1H': structure1H },
       flow,
       score,
+      audit: auditData,
     };
 
     await setCache(c.env.DB, cacheKey, report, 300);

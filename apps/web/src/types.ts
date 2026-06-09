@@ -61,6 +61,119 @@ export interface InstitutionalScore {
   details: Record<string, number>;
 }
 
+// ─── Audit Types ─────────────────────────────────────────────────────────────
+
+export interface EnrichedBOS {
+  id: string;
+  timeframe: string;
+  type: 'bullish' | 'bearish';
+  breakPrice: number;
+  brokenSwingPrice: number;
+  candleTime: number;
+  strengthScore: number;
+}
+
+export interface EnrichedCHoCH {
+  id: string;
+  timeframe: string;
+  type: 'bullish' | 'bearish';
+  breakPrice: number;
+  previousTrend: 'bullish' | 'bearish' | 'ranging';
+  candleTime: number;
+  confidence: number;
+}
+
+export interface EnrichedOrderBlock {
+  id: string;
+  type: 'bull' | 'bear';
+  high: number;
+  low: number;
+  candleTime: number;
+  displacementPct: number;
+  mitigated: boolean;
+  touchCount: number;
+  strength: number;
+  score: number;
+}
+
+export interface EnrichedFVG {
+  id: string;
+  type: 'bull' | 'bear';
+  start: number;
+  end: number;
+  sizePct: number;
+  fillPct: number;
+  filled: boolean;
+  candleTime: number;
+  score: number;
+}
+
+export interface EnrichedLiquidityPool {
+  type: 'BSL' | 'SSL';
+  price: number;
+  distanceFromPrice: number;
+  distancePct: number;
+  strength: number;
+  relevance: 'high' | 'medium' | 'low';
+}
+
+export interface ConfidenceBreakdownItem {
+  factor: string;
+  value: number;
+  reason: string;
+}
+
+export interface ScoreBreakdownItem {
+  factor: string;
+  bullishContrib: number;
+  bearishContrib: number;
+  net: number;
+  reason: string;
+}
+
+export interface DataSourceStatus {
+  name: string;
+  connected: boolean;
+  lastUpdate: number;
+  endpoint: string;
+  note?: string;
+}
+
+export interface TradeZoneAudit {
+  type: 'long' | 'short';
+  from: number;
+  to: number;
+  score: number;
+  confluences: string[];
+  reasons: string[];
+}
+
+export interface MTFRow {
+  timeframe: string;
+  trend: 'bullish' | 'bearish' | 'ranging';
+  bosCount: number;
+  chochCount: number;
+  obCount: number;
+  fvgCount: number;
+  liquidityCount: number;
+}
+
+export interface AuditData {
+  bosEvents: EnrichedBOS[];
+  chochEvents: EnrichedCHoCH[];
+  orderBlocks: EnrichedOrderBlock[];
+  fvgs: EnrichedFVG[];
+  liquidityPools: EnrichedLiquidityPool[];
+  scoreBreakdown: ScoreBreakdownItem[];
+  confidenceBreakdown: ConfidenceBreakdownItem[];
+  dataSources: DataSourceStatus[];
+  tradeZoneAudit: TradeZoneAudit[];
+  mtfComparison: MTFRow[];
+  consistencyWarning: string | null;
+}
+
+// ─── Main Report ──────────────────────────────────────────────────────────────
+
 export interface TradeReport {
   symbol: string;
   timestamp: number;
@@ -75,4 +188,5 @@ export interface TradeReport {
   structure: { '1D': MarketStructure; '4H': MarketStructure; '1H': MarketStructure };
   flow: FlowData;
   score: InstitutionalScore;
+  audit: AuditData;
 }
