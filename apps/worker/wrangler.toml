@@ -1,12 +1,13 @@
 name = "cryptosmc-worker"
 main = "src/index.ts"
 compatibility_date = "2024-01-01"
+account_id = "f4472533e426fb58d3891d7d5af1631b"
 compatibility_flags = ["nodejs_compat"]
 
 [[d1_databases]]
 binding = "DB"
 database_name = "cryptosmc-cache"
-database_id = "placeholder-replace-after-create"
+database_id = "85ee4391-140f-4973-a002-6f139ed94faf"
 
 [vars]
 COINALYZE_API_KEY = "35097e7b-35c3-4f18-9a59-e40d500b6d06"
