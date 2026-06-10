@@ -1,5 +1,5 @@
 import type { Context } from 'hono';
-import type { Env, TradeReport, AuditData, DataSourceStatus, TradeZoneAudit, MTFRow } from '../types';
+import type { Env, Candle, TradeReport, AuditData, DataSourceStatus, TradeZoneAudit, MTFRow } from '../types';
 import { fetchCandles, fetchOpenInterest, fetchOpenInterestHistory, fetchFundingRate, fetchLongShortRatio } from '../providers/binance';
 import { fetchLiquidationHeatmap } from '../providers/coinglass';
 import { fetchOI as coinalyzeOI, fetchFunding as coinalyzeFunding, fetchLongShortHistory as coinalyzeLS, toCoinalyzeSymbol } from '../providers/coinalyze';
@@ -12,6 +12,33 @@ import { computeScores, buildScoreBreakdown, buildConfidenceBreakdown, computeSi
 import { generateZones, generateScenarios } from '../engines/confluence';
 import { getCache, setCache } from '../db/cache';
 
+// Shape of the Binance data the client can send via POST
+interface ClientBinanceData {
+  candles1D: Candle[];
+  candles4H: Candle[];
+  candles1H: Candle[];
+  oi: { symbol: string; openInterest: string; time: number };
+  oiHistory: { symbol: string; sumOpenInterest: string; timestamp: number }[];
+  funding: { symbol: string; fundingRate: string; fundingTime: number }[];
+  longShort: { symbol: string; longShortRatio: string; longAccount: string; shortAccount: string; timestamp: number }[];
+  heatmap: { price: number; usdValue: number; side: 'long' | 'short' }[];
+}
+
+/** Try fetching from Worker (may fail with 403 on Cloudflare IPs) */
+async function fetchBinanceFromWorker(symbol: string): Promise<ClientBinanceData> {
+  const [candles1D, candles4H, candles1H, oi, oiHistory, funding, longShort, heatmap] = await Promise.all([
+    fetchCandles(symbol, '1d', 100),
+    fetchCandles(symbol, '4h', 100),
+    fetchCandles(symbol, '1h', 100),
+    fetchOpenInterest(symbol),
+    fetchOpenInterestHistory(symbol),
+    fetchFundingRate(symbol, 1),
+    fetchLongShortRatio(symbol, '5m', 1),
+    fetchLiquidationHeatmap(symbol),
+  ]);
+  return { candles1D, candles4H, candles1H, oi, oiHistory, funding, longShort, heatmap };
+}
+
 export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
   const symbol = c.req.query('symbol') || 'BTCUSDT';
   const cacheKey = `analyze:${symbol}`;
@@ -20,18 +47,23 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
   if (cached) return c.json(cached);
 
   try {
+    // Determine data source: POST body (client-fetched) or Worker fetch (fallback)
+    let binance: ClientBinanceData;
+    if (c.req.method === 'POST') {
+      const body = await c.req.json<{ binanceData: ClientBinanceData }>();
+      binance = body.binanceData;
+    } else {
+      // GET fallback — may fail if Binance blocks Worker IPs
+      binance = await fetchBinanceFromWorker(symbol);
+    }
+
+    const { candles1D, candles4H, candles1H, oi: oiRaw, oiHistory, funding: fundingRaw, longShort: lsRaw, heatmap } = binance;
+
+    // Coinalyze stays server-side (needs API key)
     const clzSymbol = toCoinalyzeSymbol(symbol);
     const apiKey = c.env.COINALYZE_API_KEY;
 
-    const [candles1D, candles4H, candles1H, oiRaw, oiHistory, fundingRaw, lsRaw, heatmap, clzOIData, clzFundingData, clzLSData] = await Promise.all([
-      fetchCandles(symbol, '1d', 100),
-      fetchCandles(symbol, '4h', 100),
-      fetchCandles(symbol, '1h', 100),
-      fetchOpenInterest(symbol),
-      fetchOpenInterestHistory(symbol),
-      fetchFundingRate(symbol, 1),
-      fetchLongShortRatio(symbol, '5m', 1),
-      fetchLiquidationHeatmap(symbol),
+    const [clzOIData, clzFundingData, clzLSData] = await Promise.all([
       coinalyzeOI([clzSymbol], apiKey),
       coinalyzeFunding([clzSymbol], apiKey),
       coinalyzeLS(clzSymbol, '1hour', apiKey),
@@ -121,7 +153,9 @@ export async function handleAnalyze(c: Context<{ Bindings: Env }>) {
         connected: candles4H.length > 0,
         lastUpdate: Date.now(),
         endpoint: 'fapi.binance.com',
-        note: 'Candles, OI history, liquidations (fallback for OI/funding/L/S)',
+        note: c.req.method === 'POST'
+          ? 'Client-side fetch (browser → Binance direct)'
+          : 'Worker-side fetch',
       },
       {
         name: 'Coinalyze',

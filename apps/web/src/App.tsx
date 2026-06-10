@@ -60,16 +60,27 @@ export default function App() {
       <Header lastUpdate={analysis ? new Date(analysis.timestamp) : null} />
 
       {/* Controls */}
-      <div className="flex items-center gap-4 px-6 py-3 border-b border-bg-border bg-bg-secondary">
-        <SymbolSelector value={symbol} onChange={setSymbol} />
-        <TimeframeSelector value={timeframe} onChange={setTimeframe} />
-        <button
-          onClick={refetch}
-          disabled={analysisLoading}
-          className="ml-auto px-4 py-1.5 rounded-lg bg-bg-card border border-bg-border text-text-secondary text-xs hover:text-text-primary hover:border-accent-blue transition-colors disabled:opacity-50"
-        >
-          {analysisLoading ? 'Analyzing...' : 'Refresh'}
-        </button>
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 px-4 sm:px-6 py-3 border-b border-bg-border bg-bg-secondary">
+        <div className="flex items-center gap-2 min-w-0">
+          <SymbolSelector value={symbol} onChange={setSymbol} />
+          <button
+            onClick={refetch}
+            disabled={analysisLoading}
+            className="sm:hidden ml-auto shrink-0 px-3 py-1.5 rounded-lg bg-bg-card border border-bg-border text-text-secondary text-xs hover:text-text-primary hover:border-accent-blue transition-colors disabled:opacity-50"
+          >
+            {analysisLoading ? '...' : 'Refresh'}
+          </button>
+        </div>
+        <div className="flex items-center gap-2">
+          <TimeframeSelector value={timeframe} onChange={setTimeframe} />
+          <button
+            onClick={refetch}
+            disabled={analysisLoading}
+            className="hidden sm:block sm:ml-auto px-4 py-1.5 rounded-lg bg-bg-card border border-bg-border text-text-secondary text-xs hover:text-text-primary hover:border-accent-blue transition-colors disabled:opacity-50"
+          >
+            {analysisLoading ? 'Analyzing...' : 'Refresh'}
+          </button>
+        </div>
       </div>
 
       {/* Tab Bar */}
@@ -108,7 +119,7 @@ export default function App() {
             {/* Chart Card */}
             <div className="bg-bg-card border border-bg-border rounded-xl overflow-hidden flex flex-col" style={{ height: '520px' }}>
               {/* FIX 3: Toggle bar */}
-              <div className="flex items-center gap-1.5 px-3 py-2 border-b border-bg-border bg-bg-secondary flex-shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 border-b border-bg-border bg-bg-secondary flex-shrink-0">
                 <span className="text-text-muted text-xs mr-1">Overlays:</span>
                 {TOGGLES.map(toggle => {
                   const active = toggleMap[toggle.key].value;

@@ -13,6 +13,7 @@ app.use('*', cors({ origin: '*' }));
 
 app.get('/api/health', (c) => c.json({ status: 'ok', ts: Date.now() }));
 app.get('/api/analyze', handleAnalyze);
+app.post('/api/analyze', handleAnalyze);
 app.get('/api/structure', handleStructure);
 app.get('/api/flow', handleFlow);
 app.get('/api/report', handleReport);
