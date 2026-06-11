@@ -31,7 +31,13 @@ export function interpretLongShort(ratio: number): string {
 export function computeCVD(candles: Candle[]): number[] {
   let cvd = 0;
   return candles.map(c => {
-    cvd += c.close > c.open ? c.volume : -c.volume;
+    if (c.takerBuyVolume != null && !Number.isNaN(c.takerBuyVolume)) {
+      // True aggression delta: taker buys − taker sells = 2·takerBuy − totalVolume
+      cvd += 2 * c.takerBuyVolume - c.volume;
+    } else {
+      // Fallback (no taker data): candle-color proxy
+      cvd += c.close > c.open ? c.volume : -c.volume;
+    }
     return cvd;
   });
 }

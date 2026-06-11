@@ -4,14 +4,16 @@ interface Props {
   results: BacktestResult[];
 }
 
-function WinRateBadge({ value }: { value: number }) {
-  const cls =
-    value > 60 ? 'bg-accent-green bg-opacity-20 text-accent-green' :
-    value > 40 ? 'bg-yellow-500 bg-opacity-20 text-yellow-400' :
-    'bg-accent-red bg-opacity-20 text-accent-red';
+function WinRateBadge({ value, reliable }: { value: number; reliable?: boolean }) {
+  // Unreliable samples are shown greyed out — a win rate over <10 trades is noise
+  const cls = reliable === false
+    ? 'bg-bg-border bg-opacity-40 text-text-muted'
+    : value > 60 ? 'bg-accent-green bg-opacity-20 text-accent-green' :
+      value > 40 ? 'bg-yellow-500 bg-opacity-20 text-yellow-400' :
+      'bg-accent-red bg-opacity-20 text-accent-red';
   return (
     <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>
-      {value}%
+      {value}%{reliable === false ? ' ⚠' : ''}
     </span>
   );
 }
@@ -59,7 +61,7 @@ export function BacktestPanel({ results }: Props) {
                 <td className="py-2 pr-4 text-accent-green">{r.wins}</td>
                 <td className="py-2 pr-4 text-accent-red">{r.losses}</td>
                 <td className="py-2 pr-4">
-                  <WinRateBadge value={r.winRate} />
+                  <WinRateBadge value={r.winRate} reliable={r.reliable} />
                 </td>
                 <td className="py-2 pr-4">
                   <RRBadge value={r.avgRR} />
@@ -71,7 +73,7 @@ export function BacktestPanel({ results }: Props) {
         </table>
       </div>
       <p className="mt-3 text-text-muted text-xs italic border-t border-bg-border pt-2">
-        Backtest based on limited candle history using a 70/30 in-sample/out-of-sample split. For reference only — not a guarantee of future performance.
+        Walk-forward backtest over 400 candles: entry on first zone touch, 2R target, 0.25-zone stop, sequential resolution. Greyed results have fewer than 10 resolved trades and are statistically meaningless. For reference only — not a guarantee of future performance.
       </p>
     </div>
   );

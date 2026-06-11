@@ -27,9 +27,9 @@ interface ClientBinanceData {
 /** Try fetching from Worker (may fail with 403 on Cloudflare IPs) */
 async function fetchBinanceFromWorker(symbol: string): Promise<ClientBinanceData> {
   const [candles1D, candles4H, candles1H, oi, oiHistory, funding, longShort, heatmap] = await Promise.all([
-    fetchCandles(symbol, '1d', 100),
-    fetchCandles(symbol, '4h', 100),
-    fetchCandles(symbol, '1h', 100),
+    fetchCandles(symbol, '1d', 400),
+    fetchCandles(symbol, '4h', 400),
+    fetchCandles(symbol, '1h', 400),
     fetchOpenInterest(symbol),
     fetchOpenInterestHistory(symbol),
     fetchFundingRate(symbol, 1),

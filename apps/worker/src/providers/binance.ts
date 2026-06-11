@@ -14,6 +14,7 @@ export async function fetchCandles(symbol: string, interval: string, limit = 200
     low: parseFloat(c[3]),
     close: parseFloat(c[4]),
     volume: parseFloat(c[5]),
+    takerBuyVolume: parseFloat(c[9]), // taker buy base volume → true CVD delta
   }));
 }
 
@@ -40,8 +41,12 @@ export async function fetchFundingRate(symbol: string, limit = 1): Promise<{ sym
 }
 
 export async function fetchLongShortRatio(symbol: string, period = '5m', limit = 1): Promise<{ symbol: string; longShortRatio: string; longAccount: string; shortAccount: string; timestamp: number }[]> {
-  const url = `${BASE}/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=${period}&limit=${limit}`;
+  // Top-trader POSITIONS ratio — institutional positioning beats retail account counts
+  const url = `${BASE}/futures/data/topLongShortPositionRatio?symbol=${symbol}&period=${period}&limit=${limit}`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Binance L/S error: ${res.status}`);
-  return res.json();
+  if (res.ok) return res.json();
+  // Fallback: global accounts ratio
+  const fb = await fetch(`${BASE}/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=${period}&limit=${limit}`);
+  if (!fb.ok) throw new Error(`Binance L/S error: ${fb.status}`);
+  return fb.json();
 }

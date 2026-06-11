@@ -89,15 +89,44 @@ export function generateZones(structure: MarketStructure, flow: FlowData): {
   const short_zones: ClassifiedZone[] = [];
 
   for (const ob of structure.orderBlocks) {
+    const zoneHeight = ob.high - ob.low;
     if (ob.type === 'bull') {
       const reasons: string[] = ['Bullish OB'];
       const matchingFVG = structure.fvgs.find(f => f.type === 'bull' && f.start >= ob.low && f.end <= ob.high);
       if (matchingFVG) reasons.push('FVG overlap');
       const confluenceScore = Math.min(100, reasons.length * 40 + 20);
       const baseZone = classifyZone('long', structure.trend, confluenceScore, reasons);
+
+      // Trade plan (long):
+      // Entry at 50% of the OB (consequent encroachment)
+      const entry = (ob.low + ob.high) / 2;
+      // SL below the zone: nearest swing low under it, but never tighter than the
+      // 25% zone-height buffer NOR 0.5% of entry (risk floor for tiny zones)
+      const bufferSL = Math.min(ob.low - zoneHeight * 0.25, entry * 0.995);
+      const swingLowBelow = structure.swingLows.filter(s => s.price < ob.low).map(s => s.price);
+      const invalidation = swingLowBelow.length > 0
+        ? Math.min(Math.max(...swingLowBelow), bufferSL)
+        : bufferSL;
+      const stopLoss = invalidation;
+      // TP: nearest target above entry among BSL pools and swing highs → fallback 2R.
+      // Capped at 5R — first scale-out target; structural target may sit further.
+      const risk = entry - stopLoss;
+      const targetsAbove = [
+        ...structure.liquidityPools.filter(p => p.type === 'BSL' && p.price > entry).map(p => p.price),
+        ...structure.swingHighs.filter(s => s.price > entry).map(s => s.price),
+      ];
+      const structuralTP = targetsAbove.length > 0 ? Math.min(...targetsAbove) : entry + risk * 2;
+      const takeProfit = Math.min(structuralTP, entry + risk * 5);
+      const riskReward = risk > 0 ? Math.round(((takeProfit - entry) / risk) * 100) / 100 : 0;
+
       long_zones.push({
         from: ob.low,
         to: ob.high,
+        invalidation,
+        entry,
+        stopLoss,
+        takeProfit,
+        riskReward,
         reason: baseZone.reason,
         classification: baseZone.classification,
         probability: baseZone.probability,
@@ -110,9 +139,36 @@ export function generateZones(structure: MarketStructure, flow: FlowData): {
       if (matchingFVG) reasons.push('FVG overlap');
       const confluenceScore = Math.min(100, reasons.length * 40 + 20);
       const baseZone = classifyZone('short', structure.trend, confluenceScore, reasons);
+
+      // Trade plan (short):
+      const entry = (ob.low + ob.high) / 2;
+      // SL above the zone: nearest swing high over it, but never tighter than the
+      // 25% zone-height buffer NOR 0.5% of entry (risk floor for tiny zones)
+      const bufferSL = Math.max(ob.high + zoneHeight * 0.25, entry * 1.005);
+      const swingHighAbove = structure.swingHighs.filter(s => s.price > ob.high).map(s => s.price);
+      const invalidation = swingHighAbove.length > 0
+        ? Math.max(Math.min(...swingHighAbove), bufferSL)
+        : bufferSL;
+      const stopLoss = invalidation;
+      // TP: nearest target below entry among SSL pools and swing lows → fallback 2R.
+      // Capped at 5R — first scale-out target; structural target may sit further.
+      const risk = stopLoss - entry;
+      const targetsBelow = [
+        ...structure.liquidityPools.filter(p => p.type === 'SSL' && p.price < entry).map(p => p.price),
+        ...structure.swingLows.filter(s => s.price < entry).map(s => s.price),
+      ];
+      const structuralTP = targetsBelow.length > 0 ? Math.max(...targetsBelow) : entry - risk * 2;
+      const takeProfit = Math.max(structuralTP, entry - risk * 5);
+      const riskReward = risk > 0 ? Math.round(((entry - takeProfit) / risk) * 100) / 100 : 0;
+
       short_zones.push({
         from: ob.low,
         to: ob.high,
+        invalidation,
+        entry,
+        stopLoss,
+        takeProfit,
+        riskReward,
         reason: baseZone.reason,
         classification: baseZone.classification,
         probability: baseZone.probability,
@@ -122,8 +178,15 @@ export function generateZones(structure: MarketStructure, flow: FlowData): {
     }
   }
 
-  const swingHighPrices = structure.swingHighs.map(s => s.price);
-  const invalidation_level = swingHighPrices.length > 0 ? Math.max(...swingHighPrices) : 0;
+  // Scenario-level invalidation is direction-aware:
+  // bullish trend dies below the last confirmed swing low (HL);
+  // bearish trend dies above the last confirmed swing high (LH).
+  let invalidation_level = 0;
+  if (structure.trend === 'bullish' && structure.swingLows.length > 0) {
+    invalidation_level = structure.swingLows[structure.swingLows.length - 1].price;
+  } else if (structure.trend === 'bearish' && structure.swingHighs.length > 0) {
+    invalidation_level = structure.swingHighs[structure.swingHighs.length - 1].price;
+  }
 
   return {
     long_zones: long_zones.slice(0, 3),

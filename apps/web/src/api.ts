@@ -15,6 +15,7 @@ async function fetchBinanceCandles(symbol: string, interval: string, limit = 100
     low: parseFloat(c[3]),
     close: parseFloat(c[4]),
     volume: parseFloat(c[5]),
+    takerBuyVolume: parseFloat(c[9]), // taker buy base volume → true CVD delta
   }));
 }
 
@@ -37,9 +38,13 @@ async function fetchBinanceFunding(symbol: string) {
 }
 
 async function fetchBinanceLongShort(symbol: string) {
-  const res = await fetch(`${BINANCE_BASE}/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
-  if (!res.ok) throw new Error(`Binance L/S error: ${res.status}`);
-  return res.json();
+  // Top-trader POSITIONS ratio — institutional positioning, far better signal than retail accounts
+  const res = await fetch(`${BINANCE_BASE}/futures/data/topLongShortPositionRatio?symbol=${symbol}&period=5m&limit=1`);
+  if (res.ok) return res.json();
+  // Fallback: global accounts ratio
+  const fb = await fetch(`${BINANCE_BASE}/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
+  if (!fb.ok) throw new Error(`Binance L/S error: ${fb.status}`);
+  return fb.json();
 }
 
 async function fetchBinanceLiquidations(symbol: string) {
@@ -81,9 +86,9 @@ async function fetchBinanceLiquidations(symbol: string) {
 export async function fetchAnalysis(symbol: string): Promise<any> {
   // Step 1: Fetch all Binance data from the browser (bypasses Cloudflare IP blocks)
   const [candles1D, candles4H, candles1H, oi, oiHistory, funding, longShort, heatmap] = await Promise.all([
-    fetchBinanceCandles(symbol, '1d', 100),
-    fetchBinanceCandles(symbol, '4h', 100),
-    fetchBinanceCandles(symbol, '1h', 100),
+    fetchBinanceCandles(symbol, '1d', 400),
+    fetchBinanceCandles(symbol, '4h', 400),
+    fetchBinanceCandles(symbol, '1h', 400),
     fetchBinanceOI(symbol),
     fetchBinanceOIHistory(symbol),
     fetchBinanceFunding(symbol),

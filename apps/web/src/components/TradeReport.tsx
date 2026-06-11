@@ -28,15 +28,44 @@ function RiskBadge({ risk }: { risk: ClassifiedZone['riskLevel'] }) {
   );
 }
 
+function fmt(n: number) {
+  return n.toLocaleString(undefined, { maximumFractionDigits: n < 10 ? 4 : 2 });
+}
+
 function ZoneCard({ zone, color }: { zone: ClassifiedZone; color: 'green' | 'red' }) {
   const borderColor = color === 'green' ? 'border-accent-green border-opacity-20' : 'border-accent-red border-opacity-20';
   const priceColor = color === 'green' ? 'text-accent-green' : 'text-accent-red';
+  const hasPlan = zone.entry != null && zone.stopLoss != null && zone.takeProfit != null;
   return (
     <div className={`bg-bg-secondary rounded p-2.5 border ${borderColor}`}>
       <p className={`${priceColor} text-xs font-bold mb-1`}>
         {zone.from.toLocaleString()} – {zone.to.toLocaleString()}
       </p>
       <p className="text-text-muted text-xs mb-1.5">{zone.reason}</p>
+
+      {hasPlan && (
+        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 mb-1.5 text-xs">
+          <div className="flex justify-between">
+            <span className="text-text-muted">Entry</span>
+            <span className="text-text-primary font-semibold">{fmt(zone.entry!)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-muted">SL</span>
+            <span className="text-accent-red font-semibold">{fmt(zone.stopLoss!)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-muted">TP</span>
+            <span className="text-accent-green font-semibold">{fmt(zone.takeProfit!)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-text-muted">R:R</span>
+            <span className={`font-semibold ${(zone.riskReward ?? 0) >= 2 ? 'text-accent-green' : (zone.riskReward ?? 0) >= 1 ? 'text-yellow-400' : 'text-accent-red'}`}>
+              {zone.riskReward != null ? `1:${zone.riskReward}` : '—'}
+            </span>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1.5 items-center">
         <ClassificationBadge classification={zone.classification} />
         <RiskBadge risk={zone.riskLevel} />

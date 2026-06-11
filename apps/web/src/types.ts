@@ -5,6 +5,8 @@ export interface Candle {
   low: number;
   close: number;
   volume: number;
+  /** Taker buy base-asset volume (kline index 9) — enables true CVD delta */
+  takerBuyVolume?: number;
 }
 
 export interface SwingPoint {
@@ -193,6 +195,16 @@ export interface SignalAgreement {
 export interface ClassifiedZone {
   from: number;
   to: number;
+  /** Direction-aware: long → below zone (swing low), short → above zone (swing high) */
+  invalidation?: number;
+  /** Entry at 50% of the zone (consequent encroachment) */
+  entry?: number;
+  /** Stop loss = invalidation level */
+  stopLoss?: number;
+  /** Target: nearest liquidity pool, fallback swing, fallback 2R */
+  takeProfit?: number;
+  /** Computed risk:reward ratio */
+  riskReward?: number;
   reason: string;
   classification: 'trend-following' | 'counter-trend';
   probability: number;
@@ -207,6 +219,8 @@ export interface BacktestResult {
   losses: number;
   winRate: number;
   avgRR: number;
+  /** false when resolved-trade count is below the statistical minimum */
+  reliable?: boolean;
   sampleNote: string;
 }
 
